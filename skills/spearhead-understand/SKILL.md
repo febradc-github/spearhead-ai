@@ -1,7 +1,7 @@
 ---
 name: spearhead-understand
 description: "Phase 1 of the spearhead pipeline: restates the problem, extracts the real goal, applies the clarification gate rule, and writes problem/PROBLEM.md with checkable acceptance criteria for user approval. Dispatched by /spearhead:understand or /spearhead:attack only."
-argument-hint: "[problem statement]"
+argument-hint: "[problem: what/why, expected vs actual, constraints]"
 user-invocable: false
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: spearhead-git-master
 description: "Full git lifecycle management: commits, branches, history rewriting, remotes, merging, rebasing, conflict resolution, stashing, tagging, and worktrees. Dispatched by /spearhead:git-master only."
-argument-hint: "[instruction]"
+argument-hint: "[instruction: what to do, e.g. rebase onto main]"
 user-invocable: false
 ---
 

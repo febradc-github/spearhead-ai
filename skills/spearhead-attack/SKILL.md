@@ -1,7 +1,7 @@
 ---
 name: spearhead-attack
 description: "Orchestrating entry point for the spearhead pipeline: classifies the current state from status.yml and drives phase by phase via the Skill tool, pausing at every hard gate. Dispatched by /spearhead:attack only."
-argument-hint: "[problem]"
+argument-hint: "[problem: what/why, expected vs actual, constraints]"
 user-invocable: false
 ---
 

@@ -1,6 +1,6 @@
 ---
 description: "Pivot the current attack to a new idea: archives the current attack (history, not deletion) and starts a fresh one from the new problem statement, after a single confirmation. Task branches survive."
-argument-hint: "[new idea / direction]"
+argument-hint: "[new idea / direction: what changes and why]"
 ---
 
 <important>

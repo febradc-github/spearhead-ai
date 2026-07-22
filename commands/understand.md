@@ -1,6 +1,6 @@
 ---
 description: "Phase 1: restate the problem, surface the real goal, and write PROBLEM.md with checkable acceptance criteria for approval."
-argument-hint: "[problem statement]"
+argument-hint: "[problem: what/why, expected vs actual, constraints]"
 ---
 
 <important>

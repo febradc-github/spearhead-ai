@@ -1,6 +1,6 @@
 ---
 description: "Abort the current attack with a recorded reason; artifacts are archived, never deleted. Task branches survive for manual salvage."
-argument-hint: "[reason]"
+argument-hint: "[reason: why aborting, e.g. blocked by X]"
 ---
 
 <important>

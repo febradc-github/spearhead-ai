@@ -1,7 +1,7 @@
 ---
 name: spearhead-pivot
 description: "Pivots the current attack to a new idea in one confirmed step: archives the current attack (via abort, no re-prompt), then starts a fresh attack from the new problem statement (via understand). History, not deletion. Dispatched by /spearhead:pivot, or by spearhead-understand / spearhead-attack when the user asks to replace the approved problem."
-argument-hint: "[new idea / direction]"
+argument-hint: "[new idea / direction: what changes and why]"
 user-invocable: false
 ---
 

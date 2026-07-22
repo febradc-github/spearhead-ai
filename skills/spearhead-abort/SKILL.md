@@ -1,7 +1,7 @@
 ---
 name: spearhead-abort
 description: "Aborts the current attack with a recorded reason: artifacts archived to spearhead/archive/<timestamp>/, worktrees removed, branches left for salvage, counter bumped. History, not deletion. Dispatched by /spearhead:abort only."
-argument-hint: "[reason]"
+argument-hint: "[reason: why aborting, e.g. blocked by X]"
 user-invocable: false
 ---
 
