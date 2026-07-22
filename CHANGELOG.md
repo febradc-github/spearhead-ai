@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0 — 2026-07-22
+
+- **Second-brain knowledge base (in progress, A-1), continued:**
+  - `mcp-server/lib/hash.js`: stable sha256 content hashing for change
+    detection.
+  - `mcp-server/lib/embeddings.js`: fetch-based embeddings client (Voyage
+    AI default, no HTTP client dependency), named errors on a missing key
+    or failed call.
+  - `mcp-server/lib/index-store.js`: atomically-written single-file index
+    (`spearhead-knowledge/index/embeddings.json`), and
+    `mcp-server/lib/similarity.js`: in-process cosine-similarity ranking.
+  - `scripts/knowledge-path.js`: deterministic, collision-safe knowledge-note
+    naming, escalating parent levels only on a genuine `source:` collision;
+    existing notes are never renamed.
+  - Real file-watch wiring, the `search` MCP tool, opportunistic-capture
+    hooks, and documentation still land in follow-up tasks of the same
+    attack.
+
 ## 0.5.0 — 2026-07-22
 
 - **Second-brain knowledge base (in progress, A-1):** first landed pieces of
