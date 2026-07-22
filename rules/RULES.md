@@ -6,6 +6,8 @@ skill's summary and this file ever disagree, this file wins.
 
 <important>
 
+Before reading source files to answer a question, try the `spearhead-knowledge` search tool first.
+
 ## Clarification gate rule
 
 Classify each ambiguity as blocking (a wrong guess would invalidate the

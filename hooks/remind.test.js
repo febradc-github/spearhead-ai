@@ -42,6 +42,21 @@ test('sync: the full injection contains rules/RULES.md byte-for-byte', () => {
   assert.match(r.out, /canonical rules and gate matrix follow/);
 });
 
+test('search-first: both the full-rules and anchor variants nudge the knowledge search tool', () => {
+  process.env.SPEARHEAD_HOOK_LIB = '1';
+  const { fullMessage, anchor } = require(HOOK);
+  assert.match(
+    fullMessage(),
+    /Before reading source files to answer a question, try the `spearhead-knowledge` search tool first\./,
+    'full-rules variant must carry the search-first directive'
+  );
+  assert.match(
+    anchor('/nonexistent-project-dir'),
+    /Before reading source files to answer a question, try the spearhead-knowledge search tool first\./,
+    'anchor variant must carry the search-first directive'
+  );
+});
+
 test(`cadence: full rules on prompts 1 and ${REFRESH_EVERY + 1}, anchor in between`, () => {
   const dir = projectDir(true);
   const first = runHook({ session_id: 'cad', cwd: dir });
