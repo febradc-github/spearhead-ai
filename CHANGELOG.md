@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 — 2026-07-22
+
+- **Second-brain knowledge base (in progress, A-1):** first landed pieces of
+  a semantic-search knowledge base spanning spearhead's own decision
+  record, general project docs, and opportunistically-generated notes.
+  - Bundled MCP server skeleton (`mcp-server/`) declared in both
+    `.claude-plugin/plugin.json` and `.kimi-plugin/plugin.json` via an
+    `mcpServers` block, exposing a stub `search` tool over stdio
+    (`@modelcontextprotocol/sdk`, the plugin's first real npm dependency,
+    isolated to `mcp-server/` with its own lockfile).
+  - `lib/knowledge-frontmatter.js`: shared, dependency-free parser/serializer
+    for the knowledge-note frontmatter schema (`type`, `tags`, `related`,
+    `source`, `updated`), used by every future note-writing code path.
+  - `remind.js` / `rules/RULES.md` now nudge agents to try the
+    `spearhead-knowledge` search tool before reading source files directly.
+  - Real index/search logic, naming conventions, and opportunistic capture
+    hooks land in follow-up tasks of the same attack.
+
 ## 0.4.0 — 2026-07-22
 
 - **New `/spearhead:git-master` skill** for full git lifecycle management

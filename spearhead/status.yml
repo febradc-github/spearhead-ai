@@ -18,11 +18,11 @@ phases:
 tasks:
   - id: T-1
     title: "MCP server skeleton + dual-runtime manifest declaration"
-    status: todo
-    mode: null
-    branch: null
+    status: done
+    mode: background
+    branch: spearhead/T-1
     worktree: null
-    dispatched_at: null
+    dispatched_at: 2026-07-22T08:41:18.723Z
     depends_on: []
     files:
       - mcp-server/package.json
@@ -34,21 +34,21 @@ tasks:
       - .gitignore
     parallel_approved: false
     attempts: 0
-    verify_attempts: 0
+    verify_attempts: 1
   - id: T-2
     title: "Shared frontmatter parser"
-    status: todo
-    mode: null
-    branch: null
+    status: done
+    mode: background
+    branch: spearhead/T-2
     worktree: null
-    dispatched_at: null
+    dispatched_at: 2026-07-22T08:42:12.581Z
     depends_on: []
     files:
       - lib/knowledge-frontmatter.js
       - lib/knowledge-frontmatter.test.js
-    parallel_approved: false
+    parallel_approved: true
     attempts: 0
-    verify_attempts: 0
+    verify_attempts: 1
   - id: T-3
     title: "Content hashing + embeddings client module"
     status: todo
@@ -135,19 +135,19 @@ tasks:
     verify_attempts: 0
   - id: T-8
     title: "Search-first reminder (extend remind.js + RULES.md)"
-    status: todo
-    mode: null
-    branch: null
+    status: done
+    mode: background
+    branch: spearhead/T-8
     worktree: null
-    dispatched_at: null
+    dispatched_at: 2026-07-22T08:42:12.602Z
     depends_on: []
     files:
       - hooks/remind.js
       - rules/RULES.md
       - hooks/remind.test.js
-    parallel_approved: false
+    parallel_approved: true
     attempts: 0
-    verify_attempts: 0
+    verify_attempts: 1
   - id: T-9
     title: "knowledge-nudge.js hook: code-doc-on-first-read + task-done doc update"
     status: todo

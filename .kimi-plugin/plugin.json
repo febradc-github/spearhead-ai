@@ -1,6 +1,6 @@
 {
   "name": "spearhead",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Gated problem-attack workflow: understand, recon, design, plan, execute, verify, ship, retro. Hard gates between phases, file-based state mutated only through a validating CLI, per-task git worktrees for isolated parallel execution, and independent verification so nothing self-certifies.",
   "author": {
     "name": "Dan Christian Febra"
