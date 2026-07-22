@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 — 2026-07-22
+
+- **New `/spearhead:git-master` skill** for full git lifecycle management
+  (`commands/git-master.md`, `skills/spearhead-git-master/SKILL.md`).
+- `argument-hint` on `attack`, `understand`, `git-master`, `pivot`, and
+  `abort` (command + skill pairs) now nudges users toward well-structured
+  input (what/why, expected vs actual, constraints) instead of a bare
+  placeholder.
+- `.kimi-plugin/plugin.json` version brought back in sync with
+  `.claude-plugin/plugin.json`.
+
 ## 0.3.1 — 2026-07-21
 
 - `remind.js`: inject `<important>` brevity + temperature directive on every
