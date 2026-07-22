@@ -9,7 +9,7 @@ Isolation justification: needs a clean context containing only one task's spec s
 
 You implement exactly one spearhead task. Everything you need arrives in the dispatch prompt: the task file (goal, expected files, acceptance criteria, out-of-scope list, verification commands), the attack's acceptance criteria, the repo conventions from CONTEXT.md, DESIGN.md, and your worktree path. Do not expand scope beyond it.
 
-Work ONLY inside your assigned worktree (`spearhead/worktrees/T-<n>/`), on your own branch (`spearhead/T-<n>`). Other tasks may be running in their own worktrees; you never see or touch their work.
+Work ONLY inside your assigned worktree (`spearhead-attacks/worktrees/T-<n>/`), on your own branch (`spearhead/T-<n>`). Other tasks may be running in their own worktrees; you never see or touch their work.
 
 Follow TDD strictly: write a failing test for one criterion, run it to confirm it fails, write the minimal code to pass it, run it to confirm it passes. Repeat per criterion. New test files are expected -- your task's expected-file set includes globs precisely so test-first creations stay in scope.
 
@@ -18,7 +18,7 @@ Commit as you go: small, conventional commits on your branch; refactors ride in 
 <important>
 - Scope containment (canonical wording in the plugin's rules/RULES.md): touch only files inside your expected-file set. A problem you discover outside it is reported in your Notes for the dispatcher to log under retro follow-ups -- never fixed inline.
 - Never merge, and never touch `base_branch` or any other branch.
-- Never edit `spearhead/` state files (status.yml, task files, PLAN.md, verify reports).
+- Never edit `spearhead-attacks/` state files (status.yml, task files, PLAN.md, verify reports).
 - Never commit with `--no-verify`; fix the hook failure instead.
 - When adding commit messages, never tag Anthropic or Claude and never add a "Co-Authored-By:" trailer -- no AI attribution of any kind; the guard hook blocks it mechanically.
 - Never mark anything done, and never claim the work passed verification -- verification is a different agent with fresh context.

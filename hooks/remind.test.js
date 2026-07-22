@@ -26,7 +26,7 @@ function runHook(payload, env = {}) {
 
 function projectDir(withStatus) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spearhead-remind-test-'));
-  fs.mkdirSync(path.join(dir, 'spearhead'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'spearhead-attacks'), { recursive: true });
   if (withStatus) {
     spawnSync('node', [path.join(__dirname, '..', 'scripts', 'state.js'), 'init', 'remind test', '--dir', dir], { encoding: 'utf8' });
   }
@@ -114,7 +114,7 @@ test('alternate session id field names are honored', () => {
 
 test('an idle session key is treated as new and gets the full rules again', () => {
   const dir = projectDir(true);
-  const statePath = path.join(dir, 'spearhead', '.remind-state.json');
+  const statePath = path.join(dir, 'spearhead-attacks', '.remind-state.json');
   const thirteenHoursAgo = Date.now() - 13 * 60 * 60 * 1000;
   fs.writeFileSync(statePath, JSON.stringify({ sessions: { default: { count: 5, at: thirteenHoursAgo } } }) + '\n');
   const r = runHook({ cwd: dir });
@@ -131,13 +131,13 @@ test('fallback chain: payload cwd wins', () => {
 
 test('fallback chain: tool-input path resolves the project when cwd is absent', () => {
   const dir = projectDir(false);
-  const r = runHook({ session_id: 's', tool_input: { file_path: path.join(dir, 'spearhead', 'plan', 'PLAN.md') } });
+  const r = runHook({ session_id: 's', tool_input: { file_path: path.join(dir, 'spearhead-attacks', 'plan', 'PLAN.md') } });
   assert.notEqual(r.out, '');
 });
 
 test('fallback chain: kimi tool_input.path shape also resolves', () => {
   const dir = projectDir(false);
-  const r = runHook({ session_id: 's', tool_input: { path: path.join(dir, 'spearhead', 'status.yml') } });
+  const r = runHook({ session_id: 's', tool_input: { path: path.join(dir, 'spearhead-attacks', 'status.yml') } });
   assert.notEqual(r.out, '');
 });
 
@@ -158,7 +158,7 @@ test('silent no-op when no source yields a project dir', () => {
   assert.equal(r2.out, '');
 });
 
-test('no-op when the resolved project has no spearhead/ directory', () => {
+test('no-op when the resolved project has no spearhead-attacks/ directory', () => {
   const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'spearhead-remind-bare-'));
   const r = runHook({ session_id: 's', cwd: bare });
   assert.equal(r.out, '');
@@ -172,7 +172,7 @@ test('never resolves from process.cwd()', () => {
     cwd: dir,
     env: { ...process.env, SPEARHEAD_HOOK_LIB: '', KIMI_PLUGIN_ROOT: '' },
   });
-  assert.equal(res.stdout, '', 'a spearhead/ dir in process.cwd() must not be picked up');
+  assert.equal(res.stdout, '', 'a spearhead-attacks/ dir in process.cwd() must not be picked up');
 });
 
 test('runs its handler when loaded via require() (kimi __plugin_run_node path)', () => {

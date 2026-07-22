@@ -16,7 +16,7 @@ user-invocable: false
 
 1. Check the gate (`state.js show`). Refuse if unmet.
 2. Walk PROBLEM.md's `## Acceptance criteria` one by one; for each cite the evidence (verification report, test, observable output) that it is met. Any unmet criterion: report it plainly and ask the user whether to accept the gap (recorded) or reopen work (`/spearhead:replan` needs `plan: approved` -- it still is).
-3. Write `spearhead/retro/RETRO.md`:
+3. Write `spearhead-attacks/retro/RETRO.md`:
    - `## Criteria confirmation` -- the per-criterion table with evidence.
    - `## Follow-ups` -- consolidated from execute-time entries plus anything new; each with enough context to become its own attack.
    - `## Lessons` -- what the next attack should do differently.

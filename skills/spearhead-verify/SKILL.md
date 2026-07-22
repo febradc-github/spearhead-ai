@@ -19,7 +19,7 @@ user-invocable: false
 ## Process
 
 1. Resolve the task (from `$ARGUMENTS`, or the only `implemented` task; several: ask which). Acquire the lock: `state.js lock T-<n>`. Refused: relay the named reason and stop.
-2. `state.js bump-verify T-<n>` -- this attempt is `<k>`; its report is `spearhead/verify/V-<n>.<k>.md`. History is never overwritten: a fail-fix-reverify cycle produces V-n.1.md, V-n.2.md, ...
+2. `state.js bump-verify T-<n>` -- this attempt is `<k>`; its report is `spearhead-attacks/verify/V-<n>.<k>.md`. History is never overwritten: a fail-fix-reverify cycle produces V-n.1.md, V-n.2.md, ...
 3. **Mechanical gates, run for real in the task's worktree on its branch:** the FULL test suite (not just new tests), lint, build -- the commands from the task file plus the project's standard suite. Any failure:
    write `V-<n>.<k>.md` (gate, command, full output) -> `state.js transition T-<n> in_progress` -> `state.js unlock` -> report to the user. Stop here; nothing else increments.
 4. **Independent verdict.** Assemble the verifier input package -- exactly and only:
@@ -36,7 +36,7 @@ user-invocable: false
 6. **Verdict pass -- merge and integration check:**
    1. On `base_branch`: `git merge --no-ff spearhead/T-<n>`.
    2. Run the full suite once more on the merged tree (the integration check -- it catches interaction failures between merged tasks; per-branch gates caught the task's own).
-   3. **Integration pass:** write `V-<n>.<k>.md` (verdict + integration result) -> `state.js transition T-<n> done` (the CLI clears the worktree field) -> `git worktree remove spearhead/worktrees/T-<n>` (keep the branch until ship) -> `state.js unlock`.
+   3. **Integration pass:** write `V-<n>.<k>.md` (verdict + integration result) -> `state.js transition T-<n> done` (the CLI clears the worktree field) -> `git worktree remove spearhead-attacks/worktrees/T-<n>` (keep the branch until ship) -> `state.js unlock`.
    4. **Integration fail:** `git revert -m 1 <merge-commit>` so `base_branch` stays green -> write `V-<n>.<k>.md` recording the integration failure output (blame lands on the task being merged) -> `state.js transition T-<n> in_progress` -> `state.js unlock` -> report.
 7. Report the outcome. All tasks `done` (derived -- `state.js show` prints `execute_complete`): point at `/spearhead:ship`. Otherwise name the next eligible task.
 

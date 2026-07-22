@@ -7,7 +7,7 @@ user-invocable: false
 # Recon
 
 <important>
-- Hard gate: refuse unless `phases.understand` is `approved` in `spearhead/status.yml`. Refusal message: "recon requires `understand: approved` -- run /spearhead:understand first."
+- Hard gate: refuse unless `phases.understand` is `approved` in `spearhead-attacks/status.yml`. Refusal message: "recon requires `understand: approved` -- run /spearhead:understand first."
 - Reading has a budget: 25 file reads or 60k characters, whichever is hit first. State when the budget is hit and what was skipped.
 - If the problem is a bug, reproduce it BEFORE anything else. No reproduction, no design: stop and report.
 - Status mutations only via `node "$CLAUDE_PLUGIN_ROOT/scripts/state.js"`.
@@ -24,7 +24,7 @@ user-invocable: false
    4. the modules the problem touches;
    5. related tickets/docs if present.
 4. **Dispatch:** on Claude Code, dispatch the `spearhead-scout` agent (haiku, read-only) with the reading order, the budget, and PROBLEM.md's scope; it returns a structured summary so raw file contents never enter this session. **kimi-code fallback:** plugin agents are unavailable -- read directly in this session with the SAME 25-file / 60k-char budget, summarizing into CONTEXT.md as you go rather than holding raw contents. The budget is enforced by your own counting, not by isolation; count every read.
-5. Write `spearhead/problem/CONTEXT.md`:
+5. Write `spearhead-attacks/problem/CONTEXT.md`:
    - `## Repo conventions` -- naming, layout, test framework, lint/build commands.
    - `## Affected surface` -- files/modules the problem touches.
    - `## Reproduction` (bugs only) -- exact command, observed vs expected.

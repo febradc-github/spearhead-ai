@@ -19,7 +19,7 @@ user-invocable: false
 2. If the task is stale `in_progress` (not `blocked`): confirm with the user that the dispatch is dead, then `state.js transition T-<n> blocked` first -- the matrix routes stale recovery through `blocked`.
 3. Offer exactly three recoveries and wait for the choice:
    1. **retry** -- keep the branch, worktree, and partial work; reset attempts: `state.js transition T-<n> todo` (the CLI resets `attempts` on this transition). Next `/spearhead:execute T-<n>` resumes in the same worktree.
-   2. **reset** -- discard the work. Requires explicit confirmation. Then: `git worktree remove --force spearhead/worktrees/T-<n>`, `git branch -D spearhead/T-<n>`, `state.js transition T-<n> todo --reset` (clears branch, worktree, mode, dispatch time, parallel approval).
+   2. **reset** -- discard the work. Requires explicit confirmation. Then: `git worktree remove --force spearhead-attacks/worktrees/T-<n>`, `git branch -D spearhead/T-<n>`, `state.js transition T-<n> todo --reset` (clears branch, worktree, mode, dispatch time, parallel approval).
    3. **replan** -- the task itself is wrong: send the user to `/spearhead:replan` (the task can be edited or removed while `blocked`; do not transition it here).
 
 ## Process (--lock)

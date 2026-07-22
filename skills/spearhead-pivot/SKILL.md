@@ -11,12 +11,12 @@ user-invocable: false
 - A pivot is `abort` + a fresh `understand`, wrapped in ONE confirmation. It does not weaken any gate: the current attack is archived (never deleted), and the new attack starts at the same hard `understand` approval gate as any other.
 - Confirm once, up front. State what will be archived and that a new attack begins with the new idea, then wait for the user's yes. Do not act before it.
 - This skill orchestrates existing skills; it does not re-implement archival or init. It invokes `spearhead-abort` (pre-confirmed) then `spearhead-understand`.
-- Status mutations only via `node "$CLAUDE_PLUGIN_ROOT/scripts/state.js"`; never Write/Edit `spearhead/status.yml`.
+- Status mutations only via `node "$CLAUDE_PLUGIN_ROOT/scripts/state.js"`; never Write/Edit `spearhead-attacks/status.yml`.
 </important>
 
 ## Preconditions
 
-There must be an active attack to pivot away from. If `spearhead/status.yml` is missing or the last attack is `aborted`/`complete`, there is nothing to archive: tell the user to start directly with `/spearhead:understand "<idea>"` and stop.
+There must be an active attack to pivot away from. If `spearhead-attacks/status.yml` is missing or the last attack is `aborted`/`complete`, there is nothing to archive: tell the user to start directly with `/spearhead:understand "<idea>"` and stop.
 
 ## Process
 

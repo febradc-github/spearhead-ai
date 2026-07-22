@@ -102,7 +102,7 @@ mode; the phase itself is still recorded as `phases.plan` in status.yml).
 | `/spearhead:status` | Read-only board: phases (execute shown as derived), tasks, dispatch modes, parallel-eligible tasks, blockers, verify lock, staleness flags. |
 | `/spearhead:unblock [T-id \| --lock]` | Recovery: retry / reset / replan for a blocked or stale task; clears a stale verify lock after confirmation. Never silently discards work. |
 | `/spearhead:replan` | Amends the approved plan without restarting: edit/add/split/remove `todo`/`blocked` tasks, re-validated and re-approved. The sanctioned answer to file-set overlaps. |
-| `/spearhead:abort [reason]` | Aborts the attack with a recorded reason; archives artifacts to `spearhead/archive/<timestamp>/`. History, not deletion. |
+| `/spearhead:abort [reason]` | Aborts the attack with a recorded reason; archives artifacts to `spearhead-attacks/archive/<timestamp>/`. History, not deletion. |
 | `/spearhead:pivot [new idea]` | Changes the idea mid-attack: one confirmation, then archives the current attack (like abort) and starts a fresh one from the new problem statement. Never reopens an approved phase in place; the monotonic phase invariant stays intact. The pipeline also routes here when it recognizes a "change the idea" request. |
 
 ## Workflow
@@ -129,7 +129,7 @@ mode; the phase itself is still recorded as `phases.plan` in status.yml).
 Created lazily in your repo the first time understand runs:
 
 ```
-spearhead/
+spearhead-attacks/
   status.yml                    # the ONLY place workflow status lives
   problem/PROBLEM.md            # phase 1: goal, scope, assumptions, criteria
   problem/CONTEXT.md            # phase 2: conventions, surface, reproduction
@@ -154,19 +154,19 @@ fail-fix-reverify cycle leaves `V-3.1.md`, `V-3.2.md`, … as permanent history.
 Understand offers this on first run (and records a decline so it never nags):
 
 ```
-spearhead/.remind-state.json
-spearhead/worktrees/
+spearhead-attacks/.remind-state.json
+spearhead-attacks/worktrees/
 ```
 
-Commit the rest of `spearhead/` — it is the project's decision record.
+Commit the rest of `spearhead-attacks/` — it is the project's decision record.
 
 ## The task isolation and commit model
 
 - Plan approval records the current branch as `base_branch`.
 - Execute creates branch `spearhead/T-<n>` from `base_branch` and a worktree
-  at `spearhead/worktrees/T-<n>/`. The coder works only there, in small
+  at `spearhead-attacks/worktrees/T-<n>/`. The coder works only there, in small
   conventional commits on its own branch. It never merges, never touches
-  `base_branch`, never edits `spearhead/` state, never uses `--no-verify`.
+  `base_branch`, never edits `spearhead-attacks/` state, never uses `--no-verify`.
 - Verify merges (`--no-ff`) on a full pass, then runs the suite once more on
   the merged tree — the **integration check**. If it fails, the merge is
   reverted, the task goes back to `in_progress` with the output attached, and
@@ -194,7 +194,7 @@ true concurrency existing.
 
 ## State enforcement
 
-`spearhead/status.yml` is the single source of truth for workflow status, and
+`spearhead-attacks/status.yml` is the single source of truth for workflow status, and
 every mutation goes through `scripts/state.js`, a dependency-free CLI that
 validates the *result* of each mutation against the invariants and the task
 transition matrix before writing atomically, and refuses invalid mutations
@@ -216,7 +216,7 @@ Three hooks back this up:
   in commit messages (any `Co-Authored-By:` trailer, and Anthropic/Claude
   tags — commit message rule in `rules/RULES.md`), any access to env files
   (`.env`, `.env.*`, `*.env`, `.envrc`), and raw Write/Edit (or shell
-  redirection) to `spearhead/status.yml`, pointing at `scripts/state.js`.
+  redirection) to `spearhead-attacks/status.yml`, pointing at `scripts/state.js`.
   Safe anywhere.
 - **`validate-state.js`** (PostToolUse) — a detection net, not enforcement:
   re-checks every invariant on any observed raw write to `status.yml` or a
@@ -308,9 +308,9 @@ output.
    requires every task done (derived from task states, never stored))
 
 > /spearhead:execute T-1
-  $ git branch spearhead/T-1 main && git worktree add spearhead/worktrees/T-1 spearhead/T-1
+  $ git branch spearhead/T-1 main && git worktree add spearhead-attacks/worktrees/T-1 spearhead/T-1
   $ state.js transition T-1 in_progress --branch spearhead/T-1 \
-      --worktree spearhead/worktrees/T-1 --mode background
+      --worktree spearhead-attacks/worktrees/T-1 --mode background
                                                       OK: T-1 -> in_progress
   [spearhead-coder dispatched in the background with only the task package]
   Parallel-eligible right now: T-3 (no deps, files disjoint from T-1).
@@ -342,7 +342,7 @@ output.
   $ git checkout main && git merge --no-ff spearhead/T-1
   [integration check on merged main: PASS] -> writes verify/V-1.2.md
   $ state.js transition T-1 done                      OK   (worktree field cleared)
-  $ git worktree remove spearhead/worktrees/T-1
+  $ git worktree remove spearhead-attacks/worktrees/T-1
   $ state.js unlock                                   OK
 
   [later: T-3 implemented; its verify verdict passes but the integration

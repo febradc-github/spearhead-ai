@@ -23,8 +23,8 @@ function runHook(payload, env = {}) {
 
 function projectWithStatus(text) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spearhead-validate-test-'));
-  fs.mkdirSync(path.join(dir, 'spearhead'), { recursive: true });
-  fs.writeFileSync(path.join(dir, 'spearhead', 'status.yml'), text);
+  fs.mkdirSync(path.join(dir, 'spearhead-attacks'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'spearhead-attacks', 'status.yml'), text);
   return dir;
 }
 
@@ -61,7 +61,7 @@ test('no-ops on unparseable stdin', () => {
 
 test('reports a raw status.yml write even when the result is valid', () => {
   const dir = projectWithStatus(VALID_STATUS);
-  const file = path.join(dir, 'spearhead', 'status.yml');
+  const file = path.join(dir, 'spearhead-attacks', 'status.yml');
   const r = runHook({ tool_name: 'Write', tool_input: { file_path: file }, cwd: dir });
   assert.equal(r.code, 2);
   assert.match(r.err, /written directly instead of through scripts\/state\.js/);
@@ -71,7 +71,7 @@ test('reports a raw status.yml write even when the result is valid', () => {
 test('reports named invariant violations on a corrupt status.yml', () => {
   const bad = VALID_STATUS.replace('state: active', 'state: running').replace('understand: pending', 'understand: skipped');
   const dir = projectWithStatus(bad);
-  const file = path.join(dir, 'spearhead', 'status.yml');
+  const file = path.join(dir, 'spearhead-attacks', 'status.yml');
   const r = runHook({ tool_name: 'Edit', tool_input: { file_path: file }, cwd: dir });
   assert.equal(r.code, 2);
   assert.match(r.err, /invalid-enum: attack\.state "running"/);
@@ -82,7 +82,7 @@ test('reports named invariant violations on a corrupt status.yml', () => {
 
 test('accepts the kimi-code tool_input.path shape', () => {
   const dir = projectWithStatus(VALID_STATUS);
-  const file = path.join(dir, 'spearhead', 'status.yml');
+  const file = path.join(dir, 'spearhead-attacks', 'status.yml');
   const r = runHook({ tool_name: 'Write', tool_input: { path: file }, cwd: dir });
   assert.equal(r.code, 2);
   assert.match(r.err, /scripts\/state\.js/);
@@ -90,24 +90,24 @@ test('accepts the kimi-code tool_input.path shape', () => {
 
 test('flags task files whose name is not T-<n>.md', () => {
   const dir = projectWithStatus(VALID_STATUS);
-  const file = path.join(dir, 'spearhead', 'plan', 'tasks', 'task-one.md');
+  const file = path.join(dir, 'spearhead-attacks', 'plan', 'tasks', 'task-one.md');
   const r = runHook({ tool_name: 'Write', tool_input: { file_path: file }, cwd: dir });
   assert.equal(r.code, 2);
   assert.match(r.err, /does not match T-<n>\.md/);
-  const good = runHook({ tool_name: 'Write', tool_input: { file_path: path.join(dir, 'spearhead', 'plan', 'tasks', 'T-1.md') }, cwd: dir });
+  const good = runHook({ tool_name: 'Write', tool_input: { file_path: path.join(dir, 'spearhead-attacks', 'plan', 'tasks', 'T-1.md') }, cwd: dir });
   assert.equal(good.code, 0);
 });
 
 test('resolves the project dir from the tool path when the payload has no cwd', () => {
   const dir = projectWithStatus(VALID_STATUS);
-  const file = path.join(dir, 'spearhead', 'status.yml');
+  const file = path.join(dir, 'spearhead-attacks', 'status.yml');
   const r = runHook({ tool_name: 'Write', tool_input: { file_path: file } });
-  assert.equal(r.code, 2, 'the file path itself locates the spearhead/ dir');
+  assert.equal(r.code, 2, 'the file path itself locates the spearhead-attacks/ dir');
 });
 
 test('runs its handler when loaded via require() (kimi __plugin_run_node path)', () => {
   const dir = projectWithStatus(VALID_STATUS);
-  const file = path.join(dir, 'spearhead', 'status.yml');
+  const file = path.join(dir, 'spearhead-attacks', 'status.yml');
   const res = spawnSync('node', ['-e', `require(${JSON.stringify(HOOK)})`], {
     encoding: 'utf8',
     input: JSON.stringify({ tool_name: 'Write', tool_input: { file_path: file }, cwd: dir }),

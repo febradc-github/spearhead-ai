@@ -5,7 +5,7 @@
 //     Anthropic/Claude attribution ("Generated with ...", anthropic emails);
 //   - ANY tool access to env files (.env, .env.*, *.env, .envrc);
 //   - raw Write/Edit/NotebookEdit (and shell redirection/in-place edits)
-//     targeting spearhead/status.yml -- all status mutations go through
+//     targeting spearhead-attacks/status.yml -- all status mutations go through
 //     scripts/state.js, which validates before writing.
 //
 // HONESTY: the shell-command checks are string matching. They are a
@@ -16,7 +16,7 @@
 // this and claims no more than guard.test.js proves.
 //
 // Safe to run anywhere: the commit and env-file checks apply outside
-// spearhead projects too; nothing here requires a spearhead/ directory.
+// spearhead projects too; nothing here requires a spearhead-attacks/ directory.
 // Exit 2 blocks the tool call and feeds stderr back to the model.
 //
 // Loaded both by direct execution and by kimi-code's __plugin_run_node
@@ -28,7 +28,7 @@ const path = require('node:path');
 const ENV_MSG =
   'spearhead forbids touching env files (.env, .env.*, *.env, .envrc): they hold secrets and are never read, written, searched, or referenced in commands. No exceptions -- ask the user for any config value you need.';
 const STATE_MSG =
-  'spearhead/status.yml is mutated only through scripts/state.js (node <plugin>/scripts/state.js <command> ...), which validates every mutation against the invariants and the transition matrix before writing. Raw edits are blocked.';
+  'spearhead-attacks/status.yml is mutated only through scripts/state.js (node <plugin>/scripts/state.js <command> ...), which validates every mutation against the invariants and the transition matrix before writing. Raw edits are blocked.';
 
 const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'NotebookEdit', 'Grep', 'Glob']);
 const WRITE_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit']);
@@ -51,7 +51,7 @@ function commandTouchesEnv(command) {
 }
 
 function isStatusFile(value) {
-  return typeof value === 'string' && /(^|[\\/])spearhead[\\/]status\.yml$/.test(value);
+  return typeof value === 'string' && /(^|[\\/])spearhead-attacks[\\/]status\.yml$/.test(value);
 }
 
 // Best-effort: a shell command whose writing construct actually TARGETS
@@ -60,13 +60,13 @@ function isStatusFile(value) {
 // stays allowed -- including reads with unrelated redirects like 2>/dev/null.
 function commandWritesStatus(command) {
   const c = String(command);
-  if (!/spearhead[\\/]status\.yml/.test(c)) return false;
-  const FILE = String.raw`['"]?\S*spearhead[\\/]status\.yml`;
+  if (!/spearhead-attacks[\\/]status\.yml/.test(c)) return false;
+  const FILE = String.raw`['"]?\S*spearhead-attacks[\\/]status\.yml`;
   if (new RegExp(String.raw`>>?\s*${FILE}`).test(c)) return true; // redirection into it
   if (new RegExp(String.raw`\btee\b[^|;&]*\s${FILE}`).test(c)) return true; // tee into it
   if (new RegExp(String.raw`\bsed\b[^|;&]*\s-i[^|;&]*\s${FILE}`).test(c)) return true; // in-place edit
   if (new RegExp(String.raw`\b(mv|cp)\b[^|;&]*\s${FILE}['"]?\s*(?:$|[|;&])`).test(c)) return true; // as the destination (last arg)
-  if (new RegExp(String.raw`\b(Set-Content|Out-File|Add-Content)\b[^|;&]*spearhead[\\/]status\.yml`, 'i').test(c)) return true;
+  if (new RegExp(String.raw`\b(Set-Content|Out-File|Add-Content)\b[^|;&]*spearhead-attacks[\\/]status\.yml`, 'i').test(c)) return true;
   return false;
 }
 
@@ -96,7 +96,7 @@ function checkTool(tool, args) {
 
 // kimi-code runs hooks with the plugin root as cwd and no project env var.
 // When a tool path lets us locate the project (the directory containing
-// spearhead/), leave a hint so path-less events (UserPromptSubmit) can
+// spearhead-attacks/), leave a hint so path-less events (UserPromptSubmit) can
 // resolve it too. Fails soft: a missing hint only degrades remind.js.
 function refreshProjectHint(input, args) {
   if (!process.env.KIMI_PLUGIN_ROOT) return;
@@ -104,7 +104,7 @@ function refreshProjectHint(input, args) {
   if (input && typeof input.cwd === 'string' && input.cwd) projectDir = input.cwd;
   else {
     for (const p of [args.file_path, args.path, args.notebook_path]) {
-      const m = typeof p === 'string' && p.replace(/\\/g, '/').match(/^(.*?)\/spearhead\//);
+      const m = typeof p === 'string' && p.replace(/\\/g, '/').match(/^(.*?)\/spearhead-attacks\//);
       if (m) {
         projectDir = m[1];
         break;

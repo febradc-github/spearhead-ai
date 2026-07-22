@@ -16,7 +16,7 @@ user-invocable: false
 
 ## Process
 
-1. If `spearhead/status.yml` is missing or the last attack is `aborted`/`complete`: this is a fresh attack. Invoke `spearhead-understand`, passing `$ARGUMENTS` as the problem statement.
+1. If `spearhead-attacks/status.yml` is missing or the last attack is `aborted`/`complete`: this is a fresh attack. Invoke `spearhead-understand`, passing `$ARGUMENTS` as the problem statement.
 2. Otherwise classify from `state.js show` and route to the next incomplete phase, in pipeline order:
    - `understand` not `approved` -> `spearhead-understand`
    - `recon` not `complete` -> `spearhead-recon`

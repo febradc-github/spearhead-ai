@@ -35,7 +35,7 @@ function planApproved(dir) {
 
 function dispatch(dir, id) {
   return run(dir, 'transition', id, 'in_progress',
-    '--branch', `spearhead/${id}`, '--worktree', `spearhead/worktrees/${id}`, '--mode', 'foreground');
+    '--branch', `spearhead/${id}`, '--worktree', `spearhead-attacks/worktrees/${id}`, '--mode', 'foreground');
 }
 
 test('init writes a valid status.yml and check passes', () => {
@@ -44,7 +44,7 @@ test('init writes a valid status.yml and check passes', () => {
   assert.equal(r.code, 0);
   assert.match(r.out, /initialized attack A-1/);
   assert.equal(run(dir, 'check').code, 0);
-  const text = fs.readFileSync(path.join(dir, 'spearhead', 'status.yml'), 'utf8');
+  const text = fs.readFileSync(path.join(dir, 'spearhead-attacks', 'status.yml'), 'utf8');
   assert.match(text, /state: active/);
   assert.match(text, /tasks: \[\]/);
   assert.doesNotMatch(text, /execute/, 'phases.execute must not exist anywhere');
@@ -164,7 +164,7 @@ test('implemented -> done is unreachable without the verify lock', () => {
   run(dir, 'lock', 'T-1');
   const r2 = run(dir, 'transition', 'T-1', 'done');
   assert.equal(r2.code, 0);
-  const text = fs.readFileSync(path.join(dir, 'spearhead', 'status.yml'), 'utf8');
+  const text = fs.readFileSync(path.join(dir, 'spearhead-attacks', 'status.yml'), 'utf8');
   assert.match(text, /worktree: null/, 'done clears the worktree');
   assert.equal(run(dir, 'unlock').code, 0);
 });
@@ -222,7 +222,7 @@ test('blocked -> todo resets attempts; --reset also clears the dispatch fields',
   run(dir, 'bump-attempts', 'T-1');
   run(dir, 'transition', 'T-1', 'blocked');
   assert.equal(run(dir, 'transition', 'T-1', 'todo', '--reset').code, 0);
-  const text = fs.readFileSync(path.join(dir, 'spearhead', 'status.yml'), 'utf8');
+  const text = fs.readFileSync(path.join(dir, 'spearhead-attacks', 'status.yml'), 'utf8');
   assert.match(text, /attempts: 0/);
   assert.match(text, /branch: null/);
 });
@@ -343,7 +343,7 @@ test('abort records the reason and bumps attack_counter', () => {
   const r = run(dir, 'abort', 'wrong problem');
   assert.equal(r.code, 0);
   assert.match(r.out, /next attack is A-2/);
-  const text = fs.readFileSync(path.join(dir, 'spearhead', 'status.yml'), 'utf8');
+  const text = fs.readFileSync(path.join(dir, 'spearhead-attacks', 'status.yml'), 'utf8');
   assert.match(text, /state: aborted/);
   assert.match(text, /reason: "wrong problem"/);
   assert.equal(run(dir, 'init', 'again', '--attack-counter', '2').code, 0);

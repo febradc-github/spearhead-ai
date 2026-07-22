@@ -14,7 +14,7 @@ user-invocable: false
 ## Process
 
 1. Check the gate: `state.js show`; `execute_complete` must be true. Refuse otherwise, listing each unfinished task with its state and next command (`todo` -> execute, `implemented` -> verify, `blocked` -> unblock).
-2. Write `spearhead/ship/SHIP.md` as a PR-description / release-note draft:
+2. Write `spearhead-attacks/ship/SHIP.md` as a PR-description / release-note draft:
    - `## What changed` -- per task, one paragraph, from the merge commits and verification reports.
    - `## Why` -- from PROBLEM.md's real goal.
    - `## How to verify` -- the commands a reviewer runs; lifted from the verification reports.

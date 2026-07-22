@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// The ONLY sanctioned writer of spearhead/status.yml. Skills never hand-edit
+// The ONLY sanctioned writer of spearhead-attacks/status.yml. Skills never hand-edit
 // the status file; they run this CLI, which loads the current file, applies
 // one mutation, validates the RESULT against the section 7 invariants and the
 // task transition matrix, and only then writes atomically (temp + rename).
@@ -59,7 +59,7 @@ function parseArgs(argv) {
 }
 
 function statusPath(dir) {
-  return path.join(dir, 'spearhead', 'status.yml');
+  return path.join(dir, 'spearhead-attacks', 'status.yml');
 }
 
 function load(dir) {

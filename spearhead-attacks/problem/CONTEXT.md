@@ -6,7 +6,7 @@
 - Commands: `commands/<name>.md` (user-facing thin wrapper with YAML frontmatter + inline directive to dispatch skill)
 - Skills: `skills/spearhead-<name>/SKILL.md` (backend, marked `user-invocable: false`, gate logic and real behavior)
 - Hooks: `hooks/<name>.js` (three exist: remind.js, guard.js, validate-state.js; all dependency-free Node scripts)
-- State: `scripts/state.js` (CLI, only writer of `spearhead/status.yml`, validates before writing)
+- State: `scripts/state.js` (CLI, only writer of `spearhead-attacks/status.yml`, validates before writing)
 - Scripts: Node.js, all dependency-free except MCP server (see risks)
 - Tests: Node's built-in `test` module (`*.test.js`), `node:assert/strict`, spawned hook execution via `spawnSync`
 
@@ -37,7 +37,7 @@
 
 **Session state pattern (remind.js example):**
 - Session ID key resolution with fallback to `'default'` if not provided (handles both runtimes gracefully)
-- Persistent `.remind-state.json` in `spearhead/` tracking prompt counts per session
+- Persistent `.remind-state.json` in `spearhead-attacks/` tracking prompt counts per session
 - Idle expiry (12h) treats sessions as new after silence, preventing starvation
 - Cadence-managed injection: full rules on prompt 0 and every 30th; one-line anchor otherwise
 - Atomic writes with `fs.writeFileSync()`; failures degrade gracefully (full message every prompt if state unwritable)
@@ -50,7 +50,7 @@
 ## Affected surface
 
 **New directories to add:**
-- `spearhead-knowledge/` (sibling to `spearhead/`) — storage root for knowledge base
+- `spearhead-knowledge/` (sibling to `spearhead-attacks/`) — storage root for knowledge base
   - `spearhead-knowledge/code/` — code documentation notes (one per source file)
   - `spearhead-knowledge/decisions/` — decision/architecture notes (ATK-scoped)
   - `spearhead-knowledge/architecture/` — cross-attack architecture notes
@@ -70,8 +70,8 @@
 - `CONTEXT.md` for PROBLEM.md (this file)
 
 **Files this feature must NOT modify:**
-- `spearhead/status.yml` — must never write directly (only through `state.js`)
-- Any existing `spearhead/` pipeline state files
+- `spearhead-attacks/status.yml` — must never write directly (only through `state.js`)
+- Any existing `spearhead-attacks/` pipeline state files
 
 ## Risks and unknowns
 
@@ -87,7 +87,7 @@
 
 6. **First npm dependency**: This will be the first project to introduce an npm dependency (`@anthropic-ai/sdk` or similar for MCP server harness). Verify if plugin installer/loader expects `node_modules/` to exist, whether `npm install` is run on plugin clone, or whether the MCP server must be bundled/vendored instead. README says "no npm installs" — clarify if that means (a) the plugin *itself* has no deps, but (b) the MCP server may have its own package.json in a subdirectory, or (c) everything must remain zero-dependency (likely not feasible for MCP SDK + embeddings client).
 
-7. **git worktree & file-watch interaction**: The MCP server watches `spearhead-knowledge/` via `fs.watch()`. If a task is executing in a git worktree (`spearhead/tasks/<T-id>.worktree/`), and that task updates code doc files in the main project tree (outside the worktree), the file-watch events should fire normally. Verify no filesystem isolation surprises.
+7. **git worktree & file-watch interaction**: The MCP server watches `spearhead-knowledge/` via `fs.watch()`. If a task is executing in a git worktree (`spearhead-attacks/worktrees/T-<id>/`), and that task updates code doc files in the main project tree (outside the worktree), the file-watch events should fire normally. Verify no filesystem isolation surprises.
 
 8. **Cascade on attack abort/complete**: When an attack is aborted or completed (via `state.js abort` / `set-attack-complete`), should the knowledge base entries be tagged/archived, or remain searchable? PROBLEM.md doesn't specify retention; assume they remain searchable (immutable log). Design phase should confirm.
 

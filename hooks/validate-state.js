@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 'use strict';
-// Shared invariant module + PostToolUse detection net for spearhead/status.yml.
+// Shared invariant module + PostToolUse detection net for spearhead-attacks/status.yml.
 //
 // Two roles in one file (rule: enforcement and detection share one
 // implementation):
@@ -353,7 +353,7 @@ function resolveProjectDir(input, filePath) {
   if (input && typeof input.cwd === 'string' && input.cwd) return input.cwd;
   if (input && typeof input.project_dir === 'string' && input.project_dir) return input.project_dir;
   if (filePath) {
-    const m = String(filePath).replace(/\\/g, '/').match(/^(.*?)\/spearhead\//);
+    const m = String(filePath).replace(/\\/g, '/').match(/^(.*?)\/spearhead-attacks\//);
     if (m) return m[1];
   }
   if (process.env.KIMI_PLUGIN_ROOT) {
@@ -378,8 +378,8 @@ function main() {
     const args = input.tool_input || {};
     const filePath = args.file_path || args.path || '';
     const normalized = String(filePath).replace(/\\/g, '/');
-    const isStatus = /(^|\/)spearhead\/status\.yml$/.test(normalized);
-    const isTaskFile = /(^|\/)spearhead\/plan\/tasks\/[^/]+$/.test(normalized);
+    const isStatus = /(^|\/)spearhead-attacks\/status\.yml$/.test(normalized);
+    const isTaskFile = /(^|\/)spearhead-attacks\/plan\/tasks\/[^/]+$/.test(normalized);
     if (!isStatus && !isTaskFile) process.exit(0);
     const projectDir = resolveProjectDir(input, filePath);
     if (projectDir === null) process.exit(0);

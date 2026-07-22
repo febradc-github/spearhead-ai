@@ -23,14 +23,14 @@ as `phases.plan` in status.yml.
 
 1. Check the gate (`state.js show`). Refuse if unmet.
 2. Decompose DESIGN.md into ordered atomic tasks. Sequence so every task leaves the system in a working state; put the riskiest/most uncertain task first. Record `depends_on` edges only where a real ordering exists -- fewer edges means more parallel-eligible work later.
-3. For each task draft `spearhead/plan/tasks/T-<n>.md` (numbering from the status counter -- see step 6) containing:
+3. For each task draft `spearhead-attacks/plan/tasks/T-<n>.md` (numbering from the status counter -- see step 6) containing:
    - `## Goal` -- one concern, one sentence.
    - `## Expected files` -- the binding set, paths and globs, covering modifications AND creations.
    - `## Depends on` -- task ids or "none".
    - `## Acceptance criteria` -- per-task, a subset of or derived from PROBLEM.md's criteria.
    - `## Out of scope` -- explicit list; the verifier checks the diff against it.
    - `## Verification commands` -- the exact test/lint/build commands that prove it done.
-4. Write `spearhead/plan/PLAN.md`: the ordered task list with one-line summaries, the dependency graph, and `## Testing strategy` (frameworks, coverage expectations, what new tests are required where -- the verifier reads this section verbatim).
+4. Write `spearhead-attacks/plan/PLAN.md`: the ordered task list with one-line summaries, the dependency graph, and `## Testing strategy` (frameworks, coverage expectations, what new tests are required where -- the verifier reads this section verbatim).
 5. Self-check before asking approval: pairwise-overlap the expected-file sets of tasks with no dependency path between them and flag collisions (they will block parallelism later -- either accept the serialization or re-cut the tasks); check the lockfile routing rule; check every task has creations covered by its file set.
 6. Ask the user for approval of PLAN.md and the task files. On approval:
    1. Determine the current branch: `git rev-parse --abbrev-ref HEAD`.

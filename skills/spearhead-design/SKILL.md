@@ -21,8 +21,8 @@ user-invocable: false
 3. Produce 2-3 candidate approaches. For each: complexity, performance, maintainability, reversibility -- honest tradeoffs, not a rigged comparison.
 4. Recommend the simplest candidate that meets every acceptance criterion. If a fancier one is genuinely required, say which criterion forces it.
 5. Enumerate failure modes for the chosen approach and how it handles each: bad input, dependency down, load spike, partial failure.
-6. Write `spearhead/design/DESIGN.md`: chosen approach, rejected alternatives and why, failure-mode handling, open questions resolved during design.
-7. For each significant decision, write an ADR: `spearhead/decisions/adr-<NNN>-<slug>.md` (three-digit counter continuing from existing ADRs; context / decision / consequences).
+6. Write `spearhead-attacks/design/DESIGN.md`: chosen approach, rejected alternatives and why, failure-mode handling, open questions resolved during design.
+7. For each significant decision, write an ADR: `spearhead-attacks/decisions/adr-<NNN>-<slug>.md` (three-digit counter continuing from existing ADRs; context / decision / consequences).
 8. Ask the user for approval of DESIGN.md. On approval: `state.js set-phase design approved`; point at `/spearhead:breakdown`. On requested changes: revise and re-ask.
 
 ## Refusals

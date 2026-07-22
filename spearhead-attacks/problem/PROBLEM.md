@@ -76,9 +76,9 @@ existing documentation.
   - Every note carries categorizing frontmatter (`type`, `tags`) so the user
     can color-code/group the graph by type in Obsidian's own graph view.
 - **Storage root**: a top-level `spearhead-knowledge/` directory, sibling to
-  `spearhead/` (not nested inside it) — `spearhead/` stays pipeline state
-  only; `spearhead-knowledge/` holds the second-brain knowledge base and its
-  index.
+  `spearhead-attacks/` (not nested inside it) — `spearhead-attacks/` stays
+  pipeline state only; `spearhead-knowledge/` holds the second-brain
+  knowledge base and its index.
 - **Naming convention**:
   - `spearhead-knowledge/code/<parent-folder>-<basename>.md` — e.g.
     `spearhead-knowledge/code/frontend-utils.md` for `src/frontend/utils.ts`.
@@ -119,7 +119,7 @@ existing documentation.
   separate from the MCP server: hooks nudge agents to *write* notes; the
   server only indexes and searches what's already on disk.
 - Opportunistic capture writes files directly (not through `state.js`, since
-  it never touches `spearhead/status.yml` or pipeline phase state).
+  it never touches `spearhead-attacks/status.yml` or pipeline phase state).
 - Obsidian color-coding is enabled via frontmatter only; actual graph colors
   are configured by the user inside Obsidian, not by the plugin.
 
@@ -151,7 +151,7 @@ existing documentation.
 8. Notes carry `type`/`tags` frontmatter and only include `[[wikilinks]]` to
    genuinely related notes, not indiscriminate cross-links.
 9. None of the above (MCP server indexing/search, opportunistic capture)
-   requires raw Write/Edit to `spearhead/status.yml` or alters pipeline
+   requires raw Write/Edit to `spearhead-attacks/status.yml` or alters pipeline
    phase state (`state.js show` unchanged before/after).
 10. If the embeddings API key is missing or the API call fails, the MCP
     server reports a clear, named error on the affected tool call rather

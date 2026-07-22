@@ -9,7 +9,7 @@ Three components, each with a single job, following the plugin's existing
    the index and the only component that calls the embeddings API or
    computes similarity. Responsibilities:
    - File-watches (`fs.watch`, recursive) the three knowledge sources:
-     `spearhead-knowledge/**/*.md`, `spearhead/**/*.md` (decision record),
+     `spearhead-knowledge/**/*.md`, `spearhead-attacks/**/*.md` (decision record),
      and configured general-doc paths (`README.md`, `docs/**/*.md`).
    - On a create/change event: reads the file, computes a `sha256` content
      hash (`node:crypto`, built-in). If the hash matches what's already in
@@ -138,7 +138,7 @@ the "flat file, dependency-light" storage model `PROBLEM.md` assumed.
   the same `mcpServers` block; no fallback path needed for this component
   (unlike sub-agents, which kimi-code does not support).
 - **git worktree interaction**: task work happens in
-  `spearhead/tasks/<T-id>.worktree/`, but code documentation and the
+  `spearhead-attacks/worktrees/T-<id>/`, but code documentation and the
   task-done nudge operate on paths in the main project tree (post-merge),
   not inside the worktree — `fs.watch` on the main tree sees the merged
   result normally; no isolation issue.
