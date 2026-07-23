@@ -42,19 +42,21 @@ test('sync: the full injection contains rules/RULES.md byte-for-byte', () => {
   assert.match(r.out, /canonical rules and gate matrix follow/);
 });
 
-test('search-first: both the full-rules and anchor variants nudge the knowledge search tool', () => {
+test('search-first: both the full-rules and anchor variants nudge dispatching the guru agent', () => {
   process.env.SPEARHEAD_HOOK_LIB = '1';
   const { fullMessage, anchor } = require(HOOK);
   assert.match(
     fullMessage(),
-    /Before reading source files to answer a question, try the `spearhead-knowledge` search tool first\./,
-    'full-rules variant must carry the search-first directive'
+    /Before reading source files to answer a question, dispatch the `guru` agent .*to check the knowledge base first/,
+    'full-rules variant must carry the guru-first directive'
   );
   assert.match(
     anchor('/nonexistent-project-dir'),
-    /Before reading source files to answer a question, try the spearhead-knowledge search tool first\./,
-    'anchor variant must carry the search-first directive'
+    /Before reading source files to answer a question, dispatch the guru agent .*to check the knowledge base first/,
+    'anchor variant must carry the guru-first directive'
   );
+  assert.doesNotMatch(fullMessage(), /spearhead-knowledge` search tool/, 'must not reference the old MCP search tool by name');
+  assert.doesNotMatch(anchor('/nonexistent-project-dir'), /spearhead-knowledge search tool/, 'must not reference the old MCP search tool by name');
 });
 
 test(`cadence: full rules on prompts 1 and ${REFRESH_EVERY + 1}, anchor in between`, () => {

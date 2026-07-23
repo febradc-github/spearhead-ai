@@ -6,7 +6,7 @@ skill's summary and this file ever disagree, this file wins.
 
 <important>
 
-Before reading source files to answer a question, try the `spearhead-knowledge` search tool first.
+Before reading source files to answer a question, dispatch the `guru` agent (via the Agent tool) to check the knowledge base first -- fall back to reading source only if `guru` finds nothing.
 
 ## Clarification gate rule
 
