@@ -14,7 +14,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { processFile, createPipeline, reconcile } = require('./pipeline.js');
-const { hashContent } = require('./hash.js');
+const { hashContent } = require('../../lib/hash.js');
 const { loadIndex, setEntry } = require('./index-store.js');
 const { serializeFrontmatter } = require('../../lib/knowledge-frontmatter.js');
 

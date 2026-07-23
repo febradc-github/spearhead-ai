@@ -44,7 +44,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const inv = require(path.join(__dirname, 'validate-state.js'));
 const { computeKnowledgePath } = require(path.join(__dirname, '..', 'scripts', 'knowledge-path.js'));
-const { hashContent } = require(path.join(__dirname, '..', 'mcp-server', 'lib', 'hash.js'));
+const { hashContent } = require(path.join(__dirname, '..', 'lib', 'hash.js'));
 const { parseFrontmatter } = require(path.join(__dirname, '..', 'lib', 'knowledge-frontmatter.js'));
 
 const STATE_FILE = '.knowledge-nudge-state.json';
