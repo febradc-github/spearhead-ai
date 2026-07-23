@@ -154,8 +154,13 @@ test('search tool ranks fixture index entries by similarity and returns {path, e
     type: 'code',
   });
   setEntry(root, 'spearhead-knowledge/code/far.md', {
+    // [1, 1, 0] scores ~0.707 against the [1, 0, 0] query -- above
+    // similarity.js's DEFAULT_MIN_SCORE cutoff (0.5) so it still surfaces
+    // as a second, lower-ranked result, while staying clearly below
+    // close.md's exact-match score of 1 so the ranking order this test
+    // asserts still holds.
     hash: 'h2',
-    embedding: [0, 1, 0],
+    embedding: [1, 1, 0],
     updated: '2026-07-22T00:00:00.000Z',
     type: 'code',
   });
@@ -184,12 +189,16 @@ test('search tool ranks fixture index entries by similarity and returns {path, e
 
 test('search tool defaults to the top 8 results and honors a custom limit', async () => {
   const root = mkRoot();
+  // [1, i * 0.1] stays close to parallel with the [1, 0] query across the
+  // whole i=0..11 range (worst case, i=11, still scores ~0.67), keeping
+  // every fixture above similarity.js's DEFAULT_MIN_SCORE cutoff (0.5) so
+  // this test isolates limit-truncation behavior rather than the cutoff.
   for (let i = 0; i < 12; i++) {
     const relPath = `spearhead-knowledge/code/note-${i}.md`;
     writeFile(root, relPath, `note ${i}`);
     setEntry(root, relPath, {
       hash: `h${i}`,
-      embedding: [1, i],
+      embedding: [1, i * 0.1],
       updated: '2026-07-22T00:00:00.000Z',
       type: 'code',
     });
