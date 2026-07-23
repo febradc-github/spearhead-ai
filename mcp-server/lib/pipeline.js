@@ -1,22 +1,22 @@
 'use strict';
-// Wires hashing (hash.js), the embeddings client (embeddings.js), and the
-// index store (index-store.js) to watch.js's file events (PROBLEM.md #1,
-// #3, #10; DESIGN.md "On a create/change event: ... computes a sha256
-// content hash ... If the hash matches ... skip [the embeddings call] ...
-// otherwise calls the embeddings API and updates the index entry" plus the
-// "load spike" and "embeddings API down" failure-mode handling).
+// Wires hashing (hash.js) and the index store (index-store.js) to
+// watch.js's file events (PROBLEM.md #1, #3; DESIGN.md "On a
+// create/change event: ... computes a sha256 content hash ... If the hash
+// matches ... skip ... otherwise ... updates the index entry"). Indexing
+// is purely local -- watch, hash, store -- with no network call at index
+// time: ranking now happens at query time, in rank.js, not here.
 //
 // Two entry points:
 //   - createPipeline(root, options): a sequential, in-memory queue --
 //     `.enqueue(relPath)` schedules processFile calls one at a time, never
 //     concurrently, so a burst of file-watch events (e.g. after a large
-//     task completes) never fires concurrent embeddings calls. Wire its
+//     task completes) never fires overlapping index writes. Wire its
 //     `enqueue` as watch.js's onChange callback.
 //   - reconcile(root, pipeline): startup self-heal -- rescans every
-//     currently-watched file and enqueues it, so files left stale or
-//     `pending` by a crash mid-run get caught up through the exact same
-//     hash-comparison path as a normal incremental update. No separate
-//     resume/recovery logic.
+//     currently-watched file and enqueues it, so files left stale by a
+//     crash mid-run get caught up through the exact same hash-comparison
+//     path as a normal incremental update. No separate resume/recovery
+//     logic.
 //
 // Dependency-free beyond the sibling lib/ modules it wires together (plus
 // the shared, repo-root lib/knowledge-frontmatter.js for `type` inference).
@@ -25,7 +25,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { hashContent } = require('./hash.js');
-const { embed: defaultEmbed } = require('./embeddings.js');
 const { loadIndex, setEntry } = require('./index-store.js');
 const { listWatchedFiles } = require('./watch.js');
 const { parseFrontmatter } = require('../../lib/knowledge-frontmatter.js');
@@ -47,15 +46,12 @@ function inferType(relPath, content) {
   return 'general-doc';
 }
 
-// Processes one file-change event: hash-gated, at most one embeddings
-// call. Returns `{status: 'skipped' | 'updated' | 'failed', path}`. Never
-// throws -- an embeddings failure is caught and turned into a `pending`
-// index entry (PROBLEM.md #10 / DESIGN.md failure-mode handling) so the
-// caller (the queue in createPipeline) keeps running and the file retries
-// on the next relevant event. A file that's been deleted since the event
-// fired is treated as a no-op skip, not an error.
+// Processes one file-change event: hash-gated, purely local -- no network
+// call. Returns `{status: 'skipped' | 'updated', path}`. A file that's
+// been deleted since the event fired is treated as a no-op skip, not an
+// error; any other read failure propagates to the caller rather than
+// being swallowed into a fabricated status.
 async function processFile(root, relPath, options = {}) {
-  const embed = options.embed || defaultEmbed;
   const now = options.now || (() => new Date().toISOString());
 
   let content;
@@ -68,28 +64,19 @@ async function processFile(root, relPath, options = {}) {
 
   const hash = hashContent(content);
   const existing = loadIndex(root)[relPath];
-  // A `pending` entry is never treated as up to date, regardless of hash,
-  // so a previously-failed embed always gets retried.
-  if (existing && !existing.pending && existing.hash === hash) {
+  if (existing && existing.hash === hash) {
     return { status: 'skipped', path: relPath };
   }
 
   const type = inferType(relPath, content);
-  try {
-    const embedding = await embed(content);
-    setEntry(root, relPath, { hash, embedding, updated: now(), type });
-    return { status: 'updated', path: relPath };
-  } catch (err) {
-    setEntry(root, relPath, { hash: null, pending: true, updated: now(), type });
-    process.stderr.write(`spearhead-knowledge: embeddings call failed for ${relPath}: ${err.message}\n`);
-    return { status: 'failed', path: relPath, error: err };
-  }
+  setEntry(root, relPath, { hash, updated: now(), type });
+  return { status: 'updated', path: relPath };
 }
 
 // A sequential, in-memory queue over processFile. `.enqueue(relPath)`
-// schedules a call and guarantees at most one is ever in flight, so
-// concurrent file-watch events never become concurrent embeddings calls
-// (DESIGN.md "load spike"). `.idle()` resolves once every enqueued (and
+// schedules a call and guarantees at most one is ever in flight, so a
+// burst of file-watch events (DESIGN.md "load spike") never causes
+// overlapping index writes. `.idle()` resolves once every enqueued (and
 // any enqueued-while-draining) path has finished processing -- primarily a
 // test convenience, but also useful for callers that want to know when a
 // startup reconcile() has settled.
@@ -134,9 +121,9 @@ function createPipeline(root, options = {}) {
 // Startup self-heal (PROBLEM.md "same hash-comparison path as normal
 // incremental updates"): rescans every currently-watched file under `root`
 // and enqueues each one on `pipeline`. Already up-to-date files are
-// skipped by processFile's own hash check; missing or `pending` entries
-// get (re-)embedded. Returns the pipeline's idle promise so callers can
-// await the reconcile settling.
+// skipped by processFile's own hash check; missing or stale entries get
+// (re-)indexed. Returns the pipeline's idle promise so callers can await
+// the reconcile settling.
 function reconcile(root, pipeline) {
   for (const relPath of listWatchedFiles(root)) pipeline.enqueue(relPath);
   return pipeline.idle();
