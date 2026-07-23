@@ -4,13 +4,19 @@
 // .claude-plugin/plugin.json and .kimi-plugin/plugin.json, spawned by the
 // host runtime as a stdio subprocess. T-1 proved the core architectural
 // assumption (dual-runtime MCP server support) with a stub `search` tool;
-// this task (T-6) wires up the real thing: on boot, starts the T-5
-// watch/pipeline (fs.watch + hash-gated embeddings + index store) against
-// the project root, and the `search` tool embeds the query, ranks every
-// index entry via T-4's similarity.js, and returns `{path, excerpt, score}`
-// for the top results (PROBLEM.md #2). A missing API key or embeddings-call
-// failure at query time is caught and returned as a named, non-empty tool
-// error (`isError: true`), never a silent/empty result (PROBLEM.md #10).
+// T-6 wired up the real thing (boot-time T-5 watch/pipeline against the
+// project root); this task (T-3) reworks `search`'s ranking step to use
+// T-1's CLI-based rank.js instead of embeddings/cosine-similarity
+// (PROBLEM.md/DESIGN.md's resolved decision to drop numeric similarity
+// scoring in favor of the ranking CLI's own relevance judgment): the
+// `search` tool builds `{path, excerpt}` candidates for every indexed path
+// and asks rankNotes() to filter/order them, returning `{path, excerpt}`
+// for the top results -- no `score` field, since relevance is now conveyed
+// by array order and by omission of non-matches. A ranking-CLI-unavailable
+// or ranking-request failure at query time is caught and returned as a
+// named, non-empty tool error (`isError: true`), never a silent/empty
+// result (PROBLEM.md #10); an empty result because nothing was genuinely
+// relevant remains a distinct, successful response.
 //
 // Low-level Server API (not McpServer/registerTool) so the tool's input
 // schema is a plain JSON Schema object, not a zod shape -- keeps
@@ -26,8 +32,7 @@ const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontext
 const { createPipeline, reconcile } = require('./lib/pipeline.js');
 const { watchKnowledgeSources } = require('./lib/watch.js');
 const { loadIndex } = require('./lib/index-store.js');
-const { rankBySimilarity, DEFAULT_MIN_SCORE } = require('./lib/similarity.js');
-const { embed: defaultEmbed } = require('./lib/embeddings.js');
+const { rankNotes } = require('./lib/rank.js');
 const { parseFrontmatter } = require('../lib/knowledge-frontmatter.js');
 
 const DEFAULT_LIMIT = 8;
@@ -36,7 +41,7 @@ const EXCERPT_LENGTH = 200;
 const SEARCH_TOOL = {
   name: 'search',
   description:
-    'Semantic search over the spearhead-knowledge base. Embeds the query, ranks indexed notes/docs by cosine similarity, and returns the top matches as {path, excerpt, score}. Results are filtered by a minimum relevance score (SPEARHEAD_SEARCH_MIN_SCORE, default 0.5); an empty result set means no indexed note was similar enough to the query, not a tool malfunction.',
+    'Search over the spearhead-knowledge base. Ranks indexed notes/docs against the query using the ranking CLI\'s own relevance judgment, and returns the relevant matches, most relevant first, as {path, excerpt}. Non-relevant candidates are omitted entirely rather than scored; an empty result set means no indexed note was genuinely relevant to the query, not a tool malfunction.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -71,33 +76,27 @@ function buildExcerpt(root, relPath) {
   return trimmed.length > EXCERPT_LENGTH ? `${trimmed.slice(0, EXCERPT_LENGTH)}...` : trimmed;
 }
 
-// Core of the `search` tool: embeds `query`, ranks the on-disk index, and
-// returns `{path, excerpt, score}` entries for the top `limit` (default 8)
-// matches scoring at or above the minimum relevance threshold. `options.embed`
-// overrides the embeddings client (tests inject a stub here; no live network
-// call is made by this module's own test suite). Rejects with whatever error
-// embed() throws (MissingApiKeyError, EmbeddingsRequestError) -- the caller
-// (the tool handler) is responsible for turning that into a named tool error
-// rather than swallowing it.
+// Core of the `search` tool: builds a {path, excerpt} candidate for every
+// indexed path and asks the ranking CLI (via rank.js's rankNotes) which are
+// relevant, in relevance order, then truncates to `limit` (default 8).
+// `options.rank` overrides rankNotes itself (tests inject a stub here; no
+// real subprocess is spawned by this module's own test suite). Rejects with
+// whatever error rank() throws (RankingCliUnavailableError,
+// RankingCliRequestError) -- the caller (the tool handler) is responsible
+// for turning that into a named tool error rather than swallowing it. A
+// validly-ranked empty array (nothing relevant) is returned as-is, a
+// distinct, legitimate outcome from a rejection.
 async function runSearch(root, { query, limit } = {}, options = {}) {
-  const embed = options.embed || defaultEmbed;
+  const rank = options.rank || rankNotes;
   const effectiveLimit = typeof limit === 'number' ? limit : DEFAULT_LIMIT;
-  // Same env-var-override-with-fallback pattern as embeddings.js's endpoint
-  // resolution, adapted for a float: parseFloat(undefined) and
-  // parseFloat(<unparseable string>) both yield NaN, so unset and
-  // unparseable values fall back to DEFAULT_MIN_SCORE alike rather than
-  // throwing or disabling the cutoff.
-  const parsedMinScore = parseFloat(process.env.SPEARHEAD_SEARCH_MIN_SCORE);
-  const minScore = Number.isNaN(parsedMinScore) ? DEFAULT_MIN_SCORE : parsedMinScore;
 
-  const queryEmbedding = await embed(query);
   const index = loadIndex(root);
-  const ranked = rankBySimilarity(index, queryEmbedding, effectiveLimit, minScore);
-  return ranked.map(({ path: relPath, score }) => ({
+  const candidates = Object.keys(index).map((relPath) => ({
     path: relPath,
     excerpt: buildExcerpt(root, relPath),
-    score,
   }));
+  const ranked = await rank(query, candidates, options);
+  return ranked.slice(0, effectiveLimit);
 }
 
 // Starts the T-5 watch pipeline against `root`: a sequential hash-gated
@@ -116,7 +115,7 @@ function startPipeline(root, options = {}) {
 
 function createServer(options = {}) {
   const root = options.root || resolveRoot();
-  const embed = options.embed;
+  const rank = options.rank;
 
   const server = new Server({ name: 'spearhead-knowledge', version: '0.1.0' }, { capabilities: { tools: {} } });
 
@@ -128,11 +127,12 @@ function createServer(options = {}) {
     }
     const args = request.params.arguments || {};
     try {
-      const results = await runSearch(root, args, { embed });
+      const results = await runSearch(root, args, { rank });
       return { content: [{ type: 'text', text: JSON.stringify({ results }) }] };
     } catch (err) {
-      // A clear, named tool error (PROBLEM.md #10) -- surfaced as an
-      // isError result rather than thrown, so it reaches the caller as
+      // A clear, named tool error (PROBLEM.md #10) -- e.g.
+      // RankingCliUnavailableError or RankingCliRequestError -- surfaced as
+      // an isError result rather than thrown, so it reaches the caller as
       // part of the tool call's own result instead of a raw protocol
       // rejection, and rather than silently returning an empty result set.
       return {
