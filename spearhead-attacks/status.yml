@@ -1,11 +1,11 @@
 attack:
-  id: A-2
-  title: "Knowledge-nudge staleness detection + wikilink discipline"
+  id: A-3
+  title: "MCP search: minimum-score threshold"
   started: 2026-07-23
   state: complete
   gitignore_declined: false
-attack_counter: 3
-counter: 3
+attack_counter: 4
+counter: 4
 base_branch: main
 verify_lock: null
 phases:
@@ -16,32 +16,33 @@ phases:
   ship: complete
   retro: complete
 tasks:
-  - id: T-1
-    title: "source_hash scalar frontmatter field"
-    status: done
-    mode: background
-    branch: spearhead/T-1
-    worktree: null
-    dispatched_at: 2026-07-23T05:12:17.656Z
-    depends_on: []
-    files:
-      - lib/knowledge-frontmatter.js
-      - lib/knowledge-frontmatter.test.js
-    parallel_approved: false
-    attempts: 0
-    verify_attempts: 1
   - id: T-2
-    title: "handleRead staleness detection + wikilink guidance"
+    title: "rankBySimilarity minimum-score cutoff"
     status: done
     mode: background
     branch: spearhead/T-2
     worktree: null
-    dispatched_at: 2026-07-23T05:20:07.018Z
-    depends_on:
-      - T-1
+    dispatched_at: 2026-07-23T10:16:33.724Z
+    depends_on: []
     files:
-      - hooks/knowledge-nudge.js
-      - hooks/knowledge-nudge.test.js
+      - mcp-server/lib/similarity.js
+      - mcp-server/lib/similarity.test.js
+      - mcp-server/server.test.js
+    parallel_approved: false
+    attempts: 0
+    verify_attempts: 2
+  - id: T-3
+    title: "server.js runSearch env-var wiring + tool description"
+    status: done
+    mode: background
+    branch: spearhead/T-3
+    worktree: null
+    dispatched_at: 2026-07-23T10:23:02.877Z
+    depends_on:
+      - T-2
+    files:
+      - mcp-server/server.js
+      - mcp-server/server.test.js
     parallel_approved: false
     attempts: 0
     verify_attempts: 1

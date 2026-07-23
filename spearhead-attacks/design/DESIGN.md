@@ -1,38 +1,120 @@
+# DESIGN — A-3: MCP search minimum-score threshold
+
+## Candidate approaches
+
+### 1. Cutoff inside `rankBySimilarity`, threshold sourced by `server.js` (chosen)
+
+`similarity.js` exports a `DEFAULT_MIN_SCORE = 0.5` constant alongside the
+existing `DEFAULT_LIMIT`. `rankBySimilarity(index, queryEmbedding, limit =
+DEFAULT_LIMIT, minScore = DEFAULT_MIN_SCORE)` filters out any entry whose
+score is `< minScore` *before* sorting/slicing to `limit`. `server.js`'s
+`runSearch` resolves the effective threshold the same way it could resolve
+any other override — `parseFloat(process.env.SPEARHEAD_SEARCH_MIN_SCORE)`,
+falling back to `DEFAULT_MIN_SCORE` (imported from `similarity.js`, not
+re-declared) when unset or `NaN` — and passes it into `rankBySimilarity`.
+`SEARCH_TOOL.description` gains a sentence documenting the filter and the
+empty-result meaning.
+
+- **Complexity**: one new parameter, one filter step, one env-var read —
+  the same shape as the existing `limit`/`DEFAULT_LIMIT` handling already in
+  the file. No new files, no new module.
+- **Performance**: the filter is a single `O(n)` pass over the same
+  already-computed score array, before the existing `O(n log n)` sort — no
+  change in asymptotic cost, and for typical index sizes (tens to low
+  hundreds of notes) unmeasurable.
+- **Maintainability**: the threshold's default lives in exactly one place
+  (`similarity.js`), so `server.js` and any future caller of
+  `rankBySimilarity` share one source of truth rather than duplicating the
+  literal `0.5`.
+- **Reversibility**: fully reversible — deleting the `minScore` parameter
+  and the filter line restores today's behavior exactly; the env var is
+  additive and ignored by old code.
+
+### 2. Cutoff applied in `server.js` after calling `rankBySimilarity` unchanged
+
+Keep `rankBySimilarity`'s signature untouched; in `runSearch`, call it with
+a very large `limit` (or `Infinity`) to get all scored entries, filter by
+threshold in `server.js`, then slice to the real `limit` there.
+
+- **Complexity**: similar line count, but now the limit/threshold/sort
+  contract is split across two files — `similarity.js` still owns sorting,
+  `server.js` re-implements truncation.
+- **Performance**: equivalent — still one `O(n)` filter, one `O(n log n)`
+  sort.
+- **Maintainability**: worse. `similarity.test.js` already has a full suite
+  of limit/ranking-order tests against `rankBySimilarity` directly (per
+  CONTEXT.md's Prior art); splitting the cutoff into `server.js` means those
+  guarantees ("cutoff applied before limit truncation" — PROBLEM.md
+  criterion 4) can no longer be tested at the unit level where the existing
+  ranking tests already live, only at the integration level via
+  `server.test.js`'s heavier in-memory-client fixtures.
+- **Reversibility**: fine, but not chosen — it fragments a single concern
+  (rank-and-trim) across two modules for no benefit.
+
+Rejected: no advantage over option 1, and it weakens unit-test coverage of
+the exact ordering guarantee the acceptance criteria call out by name.
+
+### 3. Dynamic/relative threshold (e.g., cutoff relative to the top score, or statistical outlier detection)
+
+Instead of a fixed absolute cosine-similarity cutoff, exclude entries whose
+score falls too far below the top result's score, or below some computed
+statistical bound (mean/stddev of the batch).
+
+- **Complexity**: meaningfully higher — requires deciding a relative-gap
+  formula or a statistics computation, with its own edge cases (single
+  result, all-identical scores, empty index).
+- **Performance**: still `O(n)`, no real difference.
+- **Maintainability**: worse — behavior becomes query-dependent and harder
+  to reason about or test deterministically; the acceptance criteria
+  (PROBLEM.md #1-3) expect a fixed, predictable pass/fail per score.
+- **Reversibility**: fine, but not chosen.
+
+Rejected: PROBLEM.md's Assumptions already settled on a fixed, overridable
+absolute threshold precisely because there is no ground truth to calibrate
+a fancier relative formula against yet (CONTEXT.md risk #1). Adding
+statistical machinery now would be solving a problem this attack doesn't
+have evidence for.
+
 ## Chosen approach
 
-Reuse the codebase's existing hash-compare idiom (already used by T-3/T-5's embeddings index: hash content, compare to a stored value, act on mismatch) rather than inventing a new staleness mechanism.
-
-1. **`lib/knowledge-frontmatter.js`**: add `source_hash` to the existing `SCALAR_FIELDS` set — it parses/serializes exactly like `source`/`updated` already do, no new code paths.
-
-2. **`hooks/knowledge-nudge.js`'s `handleRead`**: replace the current `fs.existsSync(targetPath)`-only check with a three-way state derived from a single hash computation:
-   - Compute `currentHash = hashContent(source content)`, importing `hashContent` directly from `mcp-server/lib/hash.js` (sync, `node:crypto` only, zero external deps — importing it doesn't add a dependency, just crosses the `hooks/` → `mcp-server/lib/` directory boundary).
-   - `!existsSync(targetPath)` → state `new`.
-   - Note exists, `parseFrontmatter(note).source_hash === currentHash` → state `current` → **never nudge, regardless of session** (criterion 3 — this holds today and keeps holding).
-   - Note exists, `source_hash` missing or mismatched → state `stale` → refresh nudge.
-   - `new` and `stale` both go through the existing session-throttle check before nudging; `current` skips the throttle check entirely (it never nudges, so there's nothing to throttle).
-
-3. **Session-throttle schema change**: `.knowledge-nudge-state.json`'s per-session `nudged` field changes from an array of paths (`["src.js", ...]`) to an object mapping path to the hash it was last nudged for (`{"src.js": "<hash>"}`). One field, one comparison (`nudged[relPath] === currentHash`) now serves both "already nudged this unchanged-undocumented file this session" (old behavior) and "already nudged this exact stale state this session" (new behavior) — a file that changes again after being nudged once naturally gets a new hash and re-nudges, without a second parallel data structure. Old-format state files (array `nudged`, from before this fix) are treated as empty on load — never crash, worst case is one extra nudge.
-
-4. **Nudge message text**: both `handleRead`'s two message variants (new-note, refresh) and `handleBash`'s task-done message gain a line: *"Use `[[wikilinks]]` only for genuinely related notes — do not add indiscriminate cross-links."* Reusing the message-construction pattern already in place (template strings naming the exact target path); no new message-building abstraction.
-
-5. **`handleBash`'s detection logic is unchanged** — it doesn't need staleness detection (a task's diff always means the touched files changed, by definition), only the added wikilink line.
-
-## Rejected alternatives
-
-**B — mtime comparison instead of content hash.** Compare the source file's `fs.statSync(...).mtimeMs` against the note's mtime; no frontmatter change, no hash import, no cross-directory dependency at all. Simpler on paper. Rejected: mtimes are not a reliable proxy for content change — a fresh `git clone`/checkout resets all file mtimes to checkout time regardless of git history, editors and formatters can touch a file without changing its meaningful content, and CI/deploy pipelines routinely normalize timestamps. This would produce both false staleness (spurious refresh nudges after every clone) and false freshness (a note note updated after a real edit if the note file happens to have a later mtime than the source for unrelated reasons). PROBLEM.md's criterion 4 requires detecting an actual content change, not a filesystem-timestamp change — mtime cannot honestly satisfy that.
-
-**C — track the hash only in the hook's own session state file, not in note frontmatter.** Avoids touching `lib/knowledge-frontmatter.js` or the note format at all — the hook remembers "what hash did I last see for this path" purely in its own transient state. Rejected: the session state file idle-expires (12h) and evicts old sessions (cap 20) by design — it is explicitly not meant to be a durable record. Criterion 4 doesn't scope "source changed" to "changed within the same session"; a note written last week must still be correctly detected as stale on a fresh read today, in a brand-new session, possibly by a different agent/machine. Only the note itself (frontmatter) is a durable, cross-session source of truth for "what content did this note last document" — consistent with the note being the actual persistent artifact and the state file being disposable bookkeeping.
+**Option 1.** It is the simplest change that satisfies every PROBLEM.md
+acceptance criterion, keeps the rank-and-trim concern in the one file that
+already owns it and is already unit-tested for it, and introduces no new
+literal duplication of the default threshold value.
 
 ## Failure-mode handling
 
-- **Bad input (source unreadable/deleted between the Read tool call and hook execution)**: wrap the hash computation in the same try/catch style already used around `computeKnowledgePath` ("best-effort: never crash the hook on a naming edge case") — on failure, treat as `state: new`'s absence of information and return `''` (silent), never throw.
-- **Bad input (malformed note frontmatter)**: `parseFrontmatter` already never throws — falls back to `{type: 'unknown'}` on parse failure (existing prior art), so a malformed note simply has `source_hash === undefined`, which correctly falls into the `stale` branch (safe default: nudge to fix it up).
-- **Dependency down**: none — no network calls added; `hashContent` is `node:crypto` only, same as today's zero-network hook contract.
-- **Load spike**: hashing on every `Read` of a source file is a new per-call cost (previously just `fs.existsSync`), but it's the same cost profile already accepted for T-5's embeddings pipeline (hash every changed file); source files this heuristic targets are code, not large binaries (already excluded by the extension denylist), so this stays well inside the existing 10s hook timeout.
-- **Partial failure (state file corrupted or old-format array `nudged`)**: `loadState` treats anything that isn't the expected object shape as empty — degrades to "may nudge once more than strictly necessary," never crashes. Matches the existing "unparseable state: treat as fresh" pattern already in the code.
-- **Partial failure (state file write fails, read-only project)**: unchanged from today — existing try/catch around `fs.writeFileSync` falls back to "nudge every time," a pre-existing, accepted degradation.
+- **Bad input — a score that is `NaN` or `undefined`** (e.g. a corrupt
+  embedding vector managed to produce a non-numeric similarity): the filter
+  condition is `score >= minScore`; any `NaN` comparison is `false`, so the
+  entry is silently excluded rather than crashing or slipping through.
+  Fail-closed, consistent with `cosineSimilarity`'s existing zero-magnitude
+  guard (returns `0`, which is always `< minScore` and excluded too).
+- **Dependency down (embeddings API unavailable)**: unrelated to this
+  change — `MissingApiKeyError`/`EmbeddingsRequestError` are raised before
+  `rankBySimilarity` is ever called (embedding happens first in
+  `runSearch`), so the threshold logic never runs on that path. Error
+  contract is untouched, per PROBLEM.md's explicit assumption.
+- **Load / scale**: no new failure mode — the filter is a single linear
+  pass over data already held in memory for the sort step; no additional
+  I/O, no additional allocation beyond the filtered array itself.
+- **Partial failure — every entry scores below threshold**: returns an
+  empty array. This is the intended new success case (PROBLEM.md criterion
+  3), not a failure — `runSearch`/the tool handler must return it as a
+  normal, non-error `results: []` response, exactly like a legitimately
+  empty index would today.
+- **Misconfigured env var** (`SPEARHEAD_SEARCH_MIN_SCORE` unset, empty, or
+  non-numeric, e.g. `"abc"`): `parseFloat` returns `NaN` in the unset/
+  non-numeric case; the resolution falls back to `DEFAULT_MIN_SCORE`
+  rather than disabling the cutoff or throwing — same pattern already
+  proven by `SPEARHEAD_EMBEDDINGS_ENDPOINT` in `embeddings.js`.
 
 ## Open questions resolved during design
 
-- **Where does the hash comparison happen — in `handleRead` directly, or a new helper?** Inline in `handleRead`, following the file's existing style (`isSourceFile`, `shouldNudge` etc. are all small top-level functions, not a class or module split); the three-way branch (`new`/`current`/`stale`) is a handful of lines, not enough to justify a new abstraction.
-- **Does `shouldNudge`'s signature need to change?** Yes, minimally: it already takes `(statePath, sessionId, relPath)`; extending it to `(statePath, sessionId, relPath, currentHash)` and changing its internal comparison from array-membership to hash-equality is a small, backward-compatible-at-the-call-site change (both existing call sites already have exactly this information available).
+- **Where does the default value live?** In `similarity.js`, exported as
+  `DEFAULT_MIN_SCORE`, so `server.js` imports it instead of hardcoding `0.5`
+  a second time.
+- **Does `rankBySimilarity` get a default `minScore` even when called
+  without one?** Yes — defaulting to `DEFAULT_MIN_SCORE` makes the function
+  safe-by-default for any future caller (not just `server.js`), matching
+  how `limit` already defaults to `DEFAULT_LIMIT`.

@@ -1,46 +1,111 @@
 ## Problem statement
 
-A-1's retro (`spearhead-attacks/retro/RETRO.md`) found that `hooks/knowledge-nudge.js`'s `Read` matcher only partially satisfies two of the original second-brain feature's acceptance criteria:
-
-1. **Criterion 6, second half**: re-reading a source file *after it changed* since its note was last written should re-nudge the agent to refresh the note with a new `## Changelog` entry. Currently `handleRead`'s only staleness check is `fs.existsSync(targetPath)` — it never compares the source's current content against what the note last documented, so a changed-but-already-documented file is silently never re-nudged.
-2. **Criterion 8**: notes should only include `[[wikilinks]]` to genuinely related notes, never indiscriminately. The shipped nudge text never mentions wikilinks at all — no guidance is given to the agent authoring the note.
+The `spearhead-knowledge` MCP server's `search` tool ranks every indexed
+entry by cosine similarity and always returns the top `limit` (default 8)
+results, however low their score. There is no cutoff, so the tool can never
+distinguish "found a genuinely relevant match" from "found the least-bad
+junk in an index that doesn't cover this topic at all." A caller (human or
+agent) has no reliable, mechanical way to tell "nothing relevant exists for
+this query" apart from "here are 8 weak matches" — both currently look like
+a normal, non-empty result list.
 
 ## Real goal
 
-Make the code-doc-on-first-read nudge actually detect when a documented source has drifted from its note (not just whether a note exists at all), and give the agent explicit wikilink-discipline guidance when it's nudged to write or refresh a note — closing the two gaps without touching anything else in the already-shipped second-brain feature (MCP server, index, search, task-done nudge logic, `remind.js`).
+Make "nothing relevant found" a real, detectable outcome of a `search`
+call: entries below a minimum similarity score are excluded from the
+result set, so an empty (or shorter-than-`limit`) result list becomes a
+meaningful signal rather than an artifact of a small index. This is
+explicitly a prerequisite for a *future* attack (not this one): using that
+signal to gate whether an agent should fall back to reading source files
+directly. This attack only builds the detectable signal itself.
 
 ## In scope
 
-- `lib/knowledge-frontmatter.js`: add a `source_hash` scalar field to `parseFrontmatter`/`serializeFrontmatter`, alongside the existing `type`, `tags`, `related`, `source`, `updated` fields.
-- `hooks/knowledge-nudge.js`'s `handleRead`: compute the source file's current content hash (reusing `mcp-server/lib/hash.js`'s `hashContent` — no new hashing logic) and compare it against the existing note's `source_hash` frontmatter to decide new-note vs. refresh vs. silent.
-- Both the new-note and refresh nudge messages: instruct the agent to set `source_hash` in the note's frontmatter, and add a line on wikilink discipline (only genuinely related notes, never indiscriminate).
-- `handleBash`'s task-done nudge message: also gets the wikilink-discipline line, for consistency (a note can be authored/refreshed via either trigger).
-- Tests for all of the above, same `spawnSync`-fixture pattern as the existing suite.
+- `mcp-server/lib/similarity.js`: `rankBySimilarity` gains a minimum-score
+  cutoff — entries scoring below the threshold are excluded from the
+  returned array, rather than only being sorted lower.
+- `mcp-server/server.js`: the `search` tool's `runSearch`/`SEARCH_TOOL`
+  description and result construction reflect the cutoff (e.g., updated
+  tool description text so a caller — human or agent — knows an empty or
+  short result list means "below threshold," not "tool malfunction").
+- A configurable threshold (env var, matching the existing
+  `SPEARHEAD_EMBEDDINGS_ENDPOINT`-style override pattern in
+  `mcp-server/lib/embeddings.js`), with a reasonable built-in default.
+- Tests for: entries below threshold excluded, entries at/above threshold
+  included, an all-below-threshold query returning an empty array (not an
+  error), existing ranking/limit behavior unaffected for entries that pass
+  the cutoff, threshold override via env var.
 
 ## Out of scope
 
-- The MCP server, index, or search logic (already shipped, untouched).
-- `handleBash`'s existing detection/read logic for which files to nudge (only its message text changes, per above).
-- `remind.js` / the search-first reminder (already shipped, untouched).
-- Migrating or backfilling `source_hash` into any notes that already exist on disk from before this fix — a note without `source_hash` is simply treated as stale on next read (already covered by the acceptance criteria below), not proactively rewritten.
-- Any change to how `scripts/knowledge-path.js` computes target paths.
+- Any change to how entries are embedded, indexed, or stored
+  (`mcp-server/lib/embeddings.js`, `mcp-server/lib/index-store.js`,
+  `mcp-server/lib/pipeline.js`, `mcp-server/lib/watch.js` — untouched).
+  The threshold is a search-time filter only.
+- Enforcing that an agent tries `search` before `Read`, or gating `Read` on
+  the search result being empty — that is explicitly the follow-up attack
+  this one unblocks, not this one. No changes to `hooks/guard.js` or
+  `hooks/knowledge-nudge.js`.
+- Per-call threshold override (a `minScore` argument on the `search` tool
+  call itself) — only a server-side configurable default, per the
+  Assumptions below.
+- Changing the embeddings model or provider, or any similarity metric
+  other than cosine similarity.
 
 ## Assumptions
 
-- **Hash reuse**: `mcp-server/lib/hash.js`'s `hashContent` is imported directly from `hooks/knowledge-nudge.js`. It has zero external dependencies (Node's built-in `node:crypto` only), so this doesn't violate hooks' dependency-free convention in practice, even though it crosses the `mcp-server/` directory boundary. No new hashing logic is written.
-- **Wikilink guidance scope**: applies to all three nudge-message call sites (new-note, refresh, task-done), not just the `Read` matcher's messages, since any of the three can result in a note being authored or edited.
-- **Refresh-nudge throttling**: to avoid nudging on every single read of a still-undocumented-refresh file within one session, the refresh nudge is throttled per `(relative source path, current source hash)` pair using the same session/idle-expiry state file `handleRead` already maintains — so a file whose content changed gets nudged once per distinct new hash per session (idle-expiry still applies as today), not once per every read.
-- **Missing `source_hash` on an existing note** (i.e., a note written before this fix shipped, or otherwise missing the field): treated as stale — nudges once with refresh framing, same as a genuine hash mismatch.
-- **Session state file format**: extending the existing `.knowledge-nudge-state.json` schema (adding hash-tracking alongside the existing `nudged`/`at` fields) rather than introducing a second state file.
+- **Threshold value**: no external ground truth exists for "the right"
+  cosine-similarity cutoff for Voyage AI's `voyage-3` model against this
+  corpus. A conservative default of `0.5` is used (well below typical
+  same-topic similarity, comfortably above typical unrelated-text
+  similarity for this embedding family), exposed as an overridable
+  constant so it can be tuned without a code change once real usage data
+  exists.
+- **Configurability mechanism**: an environment variable,
+  `SPEARHEAD_SEARCH_MIN_SCORE` (parsed as a float, falling back to the
+  default if unset or unparseable), matching the existing
+  `SPEARHEAD_EMBEDDINGS_ENDPOINT` override pattern already used in
+  `mcp-server/lib/embeddings.js` — no new configuration mechanism
+  introduced.
+- **Below-threshold behavior**: excluded entries are dropped from the
+  result array entirely (not returned with a "below threshold" flag) — an
+  empty or short array is itself the "nothing relevant" signal, kept
+  simple since no consumer needs per-entry threshold metadata yet.
+- **`limit` interacts with the threshold, not around it**: the cutoff is
+  applied before the `limit` truncation, so a caller may now legitimately
+  get fewer than `limit` results (including zero) when fewer entries clear
+  the threshold — this is the intended new behavior, not a bug.
+- **No change to the tool's error contract**: `MissingApiKeyError` /
+  `EmbeddingsRequestError` still surface as named `isError: true` tool
+  errors exactly as today; an empty-due-to-threshold result is a distinct,
+  successful (non-error) response with `results: []`.
 
 ## Acceptance criteria
 
-1. `lib/knowledge-frontmatter.js`'s `parseFrontmatter`/`serializeFrontmatter` round-trip a `source_hash` field the same way they already round-trip `type`/`tags`/`related`/`source`/`updated`; a note lacking the field parses without error.
-2. `handleRead`, on a read of a source file with no existing note at that target path: unchanged behavior (new-note nudge), and the nudge message now also asks the agent to set `source_hash` and includes the wikilink-discipline line.
-3. `handleRead`, on a read of a source file whose note exists and whose `source_hash` matches the source's current content hash: no nudge, regardless of session (source unchanged since documented).
-4. `handleRead`, on a read of a source file whose note exists but `source_hash` is missing or does not match the source's current content hash: nudges with refresh framing (names the existing note path, asks for an in-place update plus a new `## Changelog` entry, not a duplicate note), and this fires even within a session/idle window that would otherwise suppress a repeat nudge for the *same* hash — because a new hash is a distinct event from a repeat read at the same hash.
-5. A refresh nudge for the same `(path, hash)` pair does not repeat within the same session/idle window (throttled the same way the existing no-repeat-nudge behavior works today).
-6. Every nudge message that can lead to a note being authored or updated (new-note, refresh, and task-done) includes a line instructing the agent to use `[[wikilinks]]` only for genuinely related notes, never indiscriminately.
-7. The `Bash|PowerShell` task-done matcher's detection logic (which task, which files, when it fires) is unchanged — verified by the existing task-done tests still passing unmodified in intent (message content may differ only by the added wikilink line).
-8. `node hooks/knowledge-nudge.test.js` and `node lib/knowledge-frontmatter.test.js` both pass, including new tests for: matching-hash silence, mismatched/missing-hash refresh nudge, same-hash no-repeat throttling, and wikilink-line presence in all three message call sites.
-9. No functional change to the MCP server, index/search logic, `scripts/knowledge-path.js`'s path computation, or `remind.js` (diff confined to `hooks/knowledge-nudge.js`, `hooks/knowledge-nudge.test.js`, `lib/knowledge-frontmatter.js`, `lib/knowledge-frontmatter.test.js`).
+1. `rankBySimilarity(index, queryEmbedding, limit, minScore?)` excludes any
+   entry whose cosine similarity is below `minScore` from its returned
+   array, regardless of `limit`.
+2. Entries at or above `minScore` are still returned, sorted highest-score
+   first, truncated to `limit` — unchanged from today's behavior for
+   entries that pass the cutoff.
+3. A query where every indexed entry scores below `minScore` returns an
+   empty array, not an error and not a non-empty array of weak matches.
+4. `mcp-server/server.js`'s `runSearch` passes a threshold into
+   `rankBySimilarity`, sourced from `SPEARHEAD_SEARCH_MIN_SCORE` if set
+   (parsed as a float) and a documented default (`0.5`) otherwise; an
+   unset or unparseable env var falls back to the default rather than
+   throwing or disabling the cutoff.
+5. The `search` tool's description text (`SEARCH_TOOL.description` in
+   `server.js`) documents that results are filtered by a minimum relevance
+   score and that an empty result means no sufficiently relevant match was
+   found — so a caller reading only the tool's own schema/description
+   understands the new contract.
+6. No change to indexing, embedding, storage, or the existing
+   `MissingApiKeyError`/`EmbeddingsRequestError` error contract — diff
+   confined to `mcp-server/lib/similarity.js`,
+   `mcp-server/lib/similarity.test.js`, `mcp-server/server.js`,
+   `mcp-server/server.test.js`.
+7. `node mcp-server/lib/similarity.test.js` and `node mcp-server/server.test.js`
+   both pass, including new tests for: below-threshold exclusion,
+   at/above-threshold inclusion, all-below-threshold empty array, env var
+   override, unset/unparseable env var falling back to the default.
