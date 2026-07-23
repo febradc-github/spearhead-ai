@@ -1,69 +1,42 @@
-# SHIP — A-1: Second brain: plugin decision/design documentation system
+# SHIP — A-2: Knowledge-nudge staleness detection + wikilink discipline
 
 ## What changed
 
-**T-1 — MCP server skeleton + dual-runtime manifest declaration.** Bundled `mcp-server/` scaffolded with its own `package.json`/`node_modules` (isolated dependency footprint so `scripts/`/`hooks/` stay dependency-free), declared in both `.claude-plugin/plugin.json` and `.kimi-plugin/plugin.json` as an `mcpServers` entry, with a stub `search` tool as the initial contract.
+**T-1 — `source_hash` scalar frontmatter field.** `lib/knowledge-frontmatter.js`'s `parseFrontmatter`/`serializeFrontmatter` gained a `source_hash` scalar field, added to the existing `SCALAR_FIELDS` set and parsed/serialized exactly like `source`/`updated`: present only when provided, round-trips exactly through `parse(serialize(x))`, and is not treated specially by the existing malformed-frontmatter fallback (`{type: 'unknown'}`).
 
-**T-2 — Shared frontmatter parser.** `lib/knowledge-frontmatter.js` extends `validate-state.js`'s existing minimal YAML parser to handle note frontmatter (`type`, `tags`, `related`, `source`, `updated`), reused by naming, indexing, and hook code.
-
-**T-3 — Content hashing + embeddings client module.** `mcp-server/lib/hash.js` (sha256, `node:crypto`) and `mcp-server/lib/embeddings.js` (embeds text via `fetch` against `SPEARHEAD_EMBEDDINGS_API_KEY`/`SPEARHEAD_EMBEDDINGS_ENDPOINT`, no HTTP client dependency), with named `MissingApiKeyError`/`EmbeddingsRequestError` for clear failure surfacing.
-
-**T-4 — Index storage + cosine similarity.** `mcp-server/lib/index-store.js` reads/writes `spearhead-knowledge/index/embeddings.json` atomically (temp file + rename), keyed by relative path, entries `{hash, embedding, updated, type}`. `mcp-server/lib/similarity.js` ranks entries by cosine similarity, no vector-db dependency.
-
-**T-5 — File-watch pipeline.** `mcp-server/lib/watch.js` recursively watches (`fs.watch`) the three knowledge sources (`spearhead-knowledge/**/*.md`, `spearhead-attacks/**/*.md`, `README.md`/`docs/**/*.md`). `mcp-server/lib/pipeline.js` hash-gates each create/change event (skip if unchanged, else embed + index), processes events through a sequential in-memory queue (no concurrent embeddings calls under load spikes), marks failed embeds `pending` for retry without crashing the watcher, and self-heals on startup by reconciling against the index via the same hash-comparison path.
-
-**T-6 — Real `search` MCP tool.** Replaced the T-1 stub: `server.js` now starts the T-5 pipeline on boot and exposes `search(query, limit?)`, embedding the query and ranking the index via `similarity.js`, returning `{path, excerpt, score}` (default limit 8). Missing API key or embeddings failures surface as clear, named tool errors rather than empty/silent results.
-
-**T-7 — Deterministic naming script.** `scripts/knowledge-path.js` computes the canonical note path for a source file (`code/<parent>-<basename>.md`), checking existing notes' `source:` frontmatter synchronously and escalating one more parent level only on a genuine collision — existing notes are never renamed.
-
-**T-8 — Search-first reminder.** Extended `hooks/remind.js`'s existing injected message (both full-rules and one-line-anchor variants) with a line nudging the agent to try the `spearhead-knowledge` search tool before reading source files, reusing `remind.js`'s proven cadence/idle-expiry management rather than adding a competing tracker. `rules/RULES.md` updated to match.
-
-**T-9 — `knowledge-nudge.js` hook.** New `PostToolUse` hook registered in `hooks/hooks.json` (Claude Code) and `.kimi-plugin/plugin.json` (kimi-code) with two matchers: `Read` (nudges code documentation on a source file's first read, session-scoped no-repeat via the same idle-expiry pattern as `remind.js`) and `Bash|PowerShell` (on a successful `state.js transition <T-id> done`, reads the task's expected files from `status.yml` read-only and nudges a `## Changelog` update per file). Nudge-only — never writes state, never calls the embeddings API.
-
-*(Mid-execution correction: T-9's expected-file set originally named `.claude-plugin/plugin.json` for Claude Code hook registration; replanned to `hooks/hooks.json` after discovering `.claude-plugin/plugin.json` has no `hooks` field in this repo — hooks are registered via `hooks/hooks.json`, confirmed against the three existing hooks and the upstream sibling project this convention was copied from.)*
-
-**T-10 — README + CHANGELOG documentation.** README gained a "Second-brain knowledge base" section covering the three sources, the `spearhead-knowledge/` layout, the `search` tool, the `SPEARHEAD_EMBEDDINGS_API_KEY` requirement, and the opportunistic capture triggers. `CHANGELOG.md` gained a `0.7.0` entry.
+**T-2 — `handleRead` staleness detection + wikilink guidance.** `hooks/knowledge-nudge.js`'s `handleRead` now computes the read source file's current content hash (`mcp-server/lib/hash.js`'s `hashContent`, imported directly — no new hashing logic) and derives a three-way state instead of the previous existence-only check: no note → `new` (unchanged new-note nudge, now also asking the agent to set `source_hash`); note with a matching `source_hash` → `current` (never nudges, regardless of session); note with a missing or mismatched `source_hash` → `stale` (a new refresh nudge, naming the existing note path and asking for an in-place update plus a new `## Changelog` entry, never a duplicate note). `shouldNudge`'s session-throttle schema changed from an array of nudged paths to a map of path → last-nudged-hash, so a file that changes again after being nudged once naturally re-nudges (its hash no longer matches the recorded one); old-format array state files are treated as empty on load rather than crashing. All three nudge message sites (`handleRead` new-note, `handleRead` refresh, `handleBash` task-done) gained a shared wikilink-discipline line instructing the agent to use `[[wikilinks]]` only for genuinely related notes. `handleBash`'s detection logic (which task, which files, when it fires) is unchanged — only its message text gained the wikilink line.
 
 ## Why
 
-From `PROBLEM.md`'s real goal: give any project using spearhead a persistent, queryable knowledge base combining spearhead's own decision record, existing project documentation, and knowledge spearhead generates opportunistically as it works — so both the user and Claude Code agents retrieve relevant context via natural-language search first, instead of re-deriving it by reading the repository file-by-file. The knowledge base grows the more spearhead is used, even on projects with thin existing documentation.
+From `PROBLEM.md`'s real goal: A-1's retro found the shipped second-brain feature only partially satisfied its own acceptance criteria — `handleRead` could tell whether a note existed but not whether the source it documented had since drifted, so changed-but-documented files were silently never re-nudged; and the nudge text never gave the agent any guidance on wikilink discipline, risking indiscriminate cross-linking as notes accumulate. This attack closes both gaps without touching anything else in the already-shipped feature (MCP server, index, search, task-done detection logic, `remind.js`).
 
 ## How to verify
 
-Per-task verification commands (all green in `spearhead-attacks/verify/V-<n>.1.md`):
+Per-task verification commands (all green in `spearhead-attacks/verify/V-1.1.md` and `V-2.1.md`):
 
-- `node mcp-server/lib/hash.test.js`, `node mcp-server/lib/embeddings.test.js` (T-3)
-- `node mcp-server/lib/index-store.test.js`, `node mcp-server/lib/similarity.test.js` (T-4)
-- `node mcp-server/lib/watch.test.js`, `node mcp-server/lib/pipeline.test.js` (T-5)
-- `node mcp-server/server.test.js` (T-6)
-- `node scripts/knowledge-path.test.js` (T-7)
-- `node hooks/remind.test.js` (T-8)
-- `node hooks/knowledge-nudge.test.js` (T-9)
-- `node -e "require('fs').readFileSync('README.md','utf8')"` (T-10 sanity)
+- `node lib/knowledge-frontmatter.test.js` (T-1) — 16/16 pass.
+- `node hooks/knowledge-nudge.test.js` (T-2) — 21/21 pass.
 
-Full-repo integration check (run after every merge, most recently post-T-10): `node --test` across the repo excluding gitignored `spearhead-attacks/worktrees/*` — 178/178 pass, 0 fail.
+Full-repo integration check (run after each merge): `find . -name "*.test.js" -not -path "*/node_modules/*" -not -path "./spearhead-attacks/worktrees/*" | xargs node --test` — 182/182 pass after T-1's merge, 188/188 pass after T-2's merge, 0 fail.
 
-Manual smoke test for a reviewer: set `SPEARHEAD_EMBEDDINGS_API_KEY`, start `mcp-server/server.js` in a project with at least one completed attack and a README, confirm `spearhead-knowledge/index/embeddings.json` is created with no manual rebuild step, then call the `search` tool with a natural-language question and confirm a relevant `{path, excerpt, score}` result pointing at real file content.
+Manual smoke test for a reviewer: write a source file and a documented note for it with a matching `source_hash`; `Read` it — confirm silence. Edit the source file's content; `Read` it again in the same session — confirm a refresh nudge fires naming the note path, asking for an in-place update plus a new `## Changelog` entry, and mentioning `source_hash` and `[[wikilinks]]`. Read it a second time without further changes — confirm the refresh nudge does not repeat.
 
 ## Tradeoffs
 
 From `DESIGN.md`'s rejected alternatives:
 
-- **Hook nudges over static `rules/RULES.md` prose** — static prose reminders don't reliably fire every session (the reason `remind.js`'s cadence-managed injection exists at all); rejected the simpler zero-new-code option to satisfy PROBLEM.md's "automatic byproduct, no extra step" requirement.
-- **Persistent MCP server + live index over an on-demand CLI search script** — an on-demand script would re-embed/re-scan the knowledge base per query (slow, one API call per document per search — the opposite of the token/cost-saving goal); the MCP server maintains a live, incrementally-updated index instead. Also locked in by PROBLEM.md's explicit "Query interface: MCP server" requirement.
-- **Single `embeddings.json` file over one JSON file per note** — avoids per-file I/O at query time (whole index loads once, plain-loop cosine similarity); atomic-rewrite cost of one growing file is negligible at documentation scale (hundreds, not millions, of notes), and it keeps the flat-file, dependency-light storage model.
-
-Mid-execution deviation (not a rejected alternative, a correction): T-9's task file initially specified the wrong hook-registration file (see T-9 note above); corrected via `/spearhead:replan` before merge, no functional impact.
+- **Content hash in note frontmatter over filesystem mtime comparison** — mtime is not a reliable proxy for content change (git checkouts reset all file mtimes regardless of history, editors/formatters can touch a file without changing its meaning, CI/deploy pipelines normalize timestamps), so it would produce both false staleness and false freshness. Rejected despite being the simpler, no-frontmatter-change option, because `PROBLEM.md` criterion 4 requires detecting actual content drift.
+- **Content hash in note frontmatter over hash tracked only in the hook's own session state** — the hook's session state file idle-expires (12h) and evicts old sessions by design, so it cannot durably answer "has this source changed since the note was last written" across sessions or machines, which the acceptance criteria require (a note written last week must still read as stale today, in a brand-new session). Only the note itself is a durable, cross-session source of truth.
 
 ## Rollout
 
-Plain deploy — this ships as part of the spearhead plugin itself (skills/commands/scripts/hooks/MCP server declared in both manifests), installable and usable by any project that installs spearhead. No feature flag: the MCP server and hooks are inert until `SPEARHEAD_EMBEDDINGS_API_KEY` is set and a project opts into using the `search` tool. The CHANGELOG's `0.7.0` entry does not yet have a matching `plugin.json`/`.kimi-plugin/plugin.json` version bump — flagged as a retro follow-up, per this repo's convention of version bumps as separate `chore:` commits.
+Plain deploy — this ships as part of the spearhead plugin itself, inert until a project has both the second-brain feature enabled (`SPEARHEAD_EMBEDDINGS_API_KEY`) and existing documented notes on disk. No feature flag; no migration or backfill of `source_hash` into notes written before this fix (explicitly out of scope — such notes are simply treated as stale on next read, which is the correct, already-covered behavior).
 
 ## Monitor after release
 
 From `DESIGN.md`'s failure-mode handling:
 
-- **Embeddings API down or key missing**: watch for entries stuck `pending` in `embeddings.json` (indicates repeated embed failures) and for named `MissingApiKeyError`/`EmbeddingsRequestError` surfacing on `search` calls rather than silent empty results.
-- **Load spikes** (many files changed at once, e.g. after a large task completes): the sequential in-memory queue should prevent concurrent embeddings calls / rate-limit bursts — watch for queue backlog growth if a project's watched-file churn is unusually high.
-- **Malformed frontmatter**: should index with `type: unknown` and log a warning to server stderr rather than crash the watcher or skip the file — watch server stderr for these warnings as a signal of upstream note-authoring issues.
-- **Server crash mid-index**: `embeddings.json` writes are atomic; on restart the server should re-scan and reconcile via the same hash-comparison path — watch that restart doesn't leave `pending` entries stuck indefinitely.
+- **Source unreadable/deleted between the `Read` tool call and hook execution**: the hash computation is wrapped in try/catch and degrades to silent (no nudge) — watch for this masking a real staleness case if source reads are flaky in a given environment.
+- **Malformed note frontmatter**: `parseFrontmatter` never throws; a malformed note simply reads `source_hash` as `undefined`, which correctly falls into the `stale` branch (safe default: nudge to fix it up) — no special monitoring needed beyond the existing malformed-frontmatter behavior.
+- **Per-read hashing cost**: every `Read` of a source file now hashes its content, versus the previous `fs.existsSync`-only check — same cost profile already accepted for the embeddings pipeline's own hashing; the extension heuristic already excludes large binary files from this path, so this should stay well inside the existing 10s hook timeout, but worth watching if a project's source files are unusually large.
+- **State file corruption or old-format array `nudged`**: `loadState`/`shouldNudge` treat anything that isn't the expected map shape as empty, degrading to "may nudge once more than strictly necessary," never crashing.

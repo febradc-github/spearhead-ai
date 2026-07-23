@@ -1,119 +1,167 @@
-# Recon: Spearhead Knowledge Base (A-1)
+# Recon: Knowledge-Nudge Hash & Wikilink Fix (A-2)
 
 ## Repo conventions
 
 **Naming & layout:**
-- Commands: `commands/<name>.md` (user-facing thin wrapper with YAML frontmatter + inline directive to dispatch skill)
-- Skills: `skills/spearhead-<name>/SKILL.md` (backend, marked `user-invocable: false`, gate logic and real behavior)
-- Hooks: `hooks/<name>.js` (three exist: remind.js, guard.js, validate-state.js; all dependency-free Node scripts)
-- State: `scripts/state.js` (CLI, only writer of `spearhead-attacks/status.yml`, validates before writing)
-- Scripts: Node.js, all dependency-free except MCP server (see risks)
-- Tests: Node's built-in `test` module (`*.test.js`), `node:assert/strict`, spawned hook execution via `spawnSync`
+- Hooks: `hooks/<name>.js` (dependency-free Node scripts, zero npm dependencies except MCP server)
+- Libraries: `lib/<name>.js` (shared across scripts/, hooks/, mcp-server/)
+- MCP server: `mcp-server/lib/*.js` and `mcp-server/server.js`
+- Tests: Node's built-in `test` module, `node:assert/strict`, spawned via `spawnSync` in `*.test.js` files
+- State files: JSON (persisted in `spearhead-attacks/` directory)
 
-**Plugin manifests:**
-- `.claude-plugin/plugin.json` — Claude Code manifest (currently no `mcpServers` field declared yet)
-- `.kimi-plugin/plugin.json` — kimi-code manifest (identical structure, same `skills/` and `commands/` pointers). Confirmed by the user: kimi-code DOES support MCP servers (corrects the scout's earlier inference from the README's agent-fallback section, which did not cover MCP explicitly)
+**Hook I/O contract:**
+- stdin: JSON payload (hook-event specific)
+- stdout: injected message (empty if silent)
+- stderr: errors (exit 2 blocks tool call)
+- Exit 0 = allow, Exit 2 = refuse
+- 10s timeout per plugin.json
+- Handles both Claude Code (`file_path`) and kimi-code (`path` or `tool_input.path`)
 
-**Wiring pattern (command → skill):**
-1. User runs `/spearhead:foo`
-2. `commands/foo.md` is a minimal wrapper with YAML frontmatter setting description and dispatching `Skill` tool to `spearhead-foo`
-3. `skills/spearhead-foo/SKILL.md` defines the actual behavior (`user-invocable: false`)
-4. Phase mutations via `node "$CLAUDE_PLUGIN_ROOT/scripts/state.js"` only (never raw Write/Edit to status.yml)
+**Session & idle-expiry pattern (shared by remind.js and knowledge-nudge.js):**
+- Session ID resolution: check input keys `['session_id', 'sessionId', 'session', 'conversation_id', 'chat_id']`, fallback to `'default'`
+- Idle expiry: `12 * 60 * 60 * 1000` ms (12 hours) — a session silent longer than this is treated as new
+- State files: JSON-persisted in `spearhead-attacks/` (e.g., `.remind-state.json`, `.knowledge-nudge-state.json`)
+- State schema: `{ sessions: { <sessionId>: { ... metadata ... }, ... } }`
+- Atomic writes: `fs.writeFileSync(statePath, JSON.stringify(state) + '\n')` with try-catch for graceful degradation
+- Session cleanup: keep only `MAX_TRACKED_SESSIONS` (20); evict oldest by `at` timestamp when limit exceeded
 
 **Dependency philosophy:**
-- Zero npm dependencies currently (README line 39: "No npm installs, no network calls")
-- All scripts use Node built-ins only (`node:fs`, `node:path`, `node:test`, `node:assert`, `node:child_process`)
-- Custom YAML parser in `validate-state.js` (no YAML library), re-exported by `state.js` as the invariant-checker module
-- Tests use built-in `test` and `assert/strict`, no jest/mocha/tape
-
-**Hook I/O contract (all three):**
-- stdin: JSON payload (hook-event specific)
-- stdout: one message (injected into session or empty)
-- stderr: violations or errors (exit 2 blocks tool call)
-- Exit 0 = allow / silent
-- Runs with 10s timeout (plugin.json `timeout` field)
-- Handles both Claude Code and kimi-code path shapes (`file_path` vs `tool_input.path`)
-- Project directory resolution: `cwd` field → tool input path → fallback hint file (never `process.cwd()`)
-
-**Session state pattern (remind.js example):**
-- Session ID key resolution with fallback to `'default'` if not provided (handles both runtimes gracefully)
-- Persistent `.remind-state.json` in `spearhead-attacks/` tracking prompt counts per session
-- Idle expiry (12h) treats sessions as new after silence, preventing starvation
-- Cadence-managed injection: full rules on prompt 0 and every 30th; one-line anchor otherwise
-- Atomic writes with `fs.writeFileSync()`; failures degrade gracefully (full message every prompt if state unwritable)
+- Zero npm dependencies in hooks/ and scripts/ (Node built-ins only)
+- MCP server may have dependencies (fast-uri and others under mcp-server/node_modules)
+- No external APIs called from hooks (compute-only, no network)
 
 **Lint/build/test:**
-- No build step documented
-- Test: `node hooks/remind.test.js` (direct execution; Node's test runner auto-discovers `.test.js`)
-- No CI config shown; verify with `find` if needed (budget permitting)
+- No build step
+- Test: `node hooks/knowledge-nudge.test.js` and `node lib/knowledge-frontmatter.test.js` (Node's test runner auto-discovers `.test.js`)
 
 ## Affected surface
 
-**New directories to add:**
-- `spearhead-knowledge/` (sibling to `spearhead-attacks/`) — storage root for knowledge base
-  - `spearhead-knowledge/code/` — code documentation notes (one per source file)
-  - `spearhead-knowledge/decisions/` — decision/architecture notes (ATK-scoped)
-  - `spearhead-knowledge/architecture/` — cross-attack architecture notes
-  - `spearhead-knowledge/index/` — embeddings and index metadata (flat files, no external DB)
+**Files the fix touches:**
 
-**Plugin manifest modifications:**
-- `.claude-plugin/plugin.json` — add `mcpServers` block declaring a bundled MCP server (exact schema TBD; reference: turnstile's `brain-mcp-server.js`)
-- `.kimi-plugin/plugin.json` — add the equivalent `mcpServers` declaration; kimi-code supports MCP servers (confirmed by user), so both manifests can declare the same server, no fallback needed for this capability
+1. **`hooks/knowledge-nudge.js`** (~267 lines)
+   - `handleRead(input, projectDir)` — currently (lines 152–175) checks `fs.existsSync(targetPath)` only; must extend to compare content hash
+   - `shouldNudge(statePath, sessionId, relPath)` — currently tracks `nudged: [relPath, ...]` per session; must extend to track hashes
+   - State file schema: currently `{ sessions: { <sessionId>: { nudged: [...], at: <ms> } } }`; must extend to `{ sessions: { <sessionId>: { nudged: [...], hashes: {...}, at: <ms> } } }`
+   - Nudge messages: both `handleRead` (lines 170–174) and `handleBash` (lines 224–229) must add wikilink-discipline line
 
-**New hooks (or extend existing remind.js):**
-- Hook to nudge code-doc-on-first-read (fires on Read tool, checks `spearhead-knowledge/code/*.md`, nudges if missing)
-- Hook to nudge search-first-reminder (fires on UserPromptSubmit when spearhead active, nudges agent to use MCP search tool before reading source files)
-- Hook to update code docs on task `done` (fires after task transitions to done, reads task diff, updates each touched file's documentation + changelog)
+2. **`lib/knowledge-frontmatter.js`** (~147 lines)
+   - `parseFrontmatter(content)` — currently parses `type`, `tags`, `related`, `source`, `updated` (lines 64–117); must add `source_hash` as scalar field
+   - `serializeFrontmatter(fields, body)` — currently serializes the above (lines 125–144); must serialize `source_hash` same way as `source`/`updated`
+   - Field addition: add `source_hash` to `SCALAR_FIELDS` set (line 33)
 
-**New files/directories:**
-- MCP server entry point (bundled, declared in plugin.json, loads/watches knowledge sources, serves search tool)
-- `CONTEXT.md` for PROBLEM.md (this file)
+3. **`mcp-server/lib/hash.js`** (~16 lines) — already exports `hashContent(content)` (sync, takes string/Buffer, returns lowercase hex sha256); no changes needed, only import into `hooks/knowledge-nudge.js`
 
-**Files this feature must NOT modify:**
-- `spearhead-attacks/status.yml` — must never write directly (only through `state.js`)
-- Any existing `spearhead-attacks/` pipeline state files
+4. **`hooks/knowledge-nudge.test.js`** (~200+ lines)
+   - Add tests for: matching hash silence, mismatched/missing hash refresh nudge, same-hash no-repeat throttling, wikilink-line presence in all three message call sites
+   - Reuse existing `runHook`, `projectDir`, `writeSourceFile`, `writeDocumentedNote`, and `setupImplementedLockedTask` helpers
+
+5. **`lib/knowledge-frontmatter.test.js`** (~150+ lines)
+   - Add tests for `source_hash` round-trip (parse/serialize with hash present/absent)
+
+**Current nudge message call sites:**
+- `handleRead`: line 170–174 (new-note nudge when source undocumented)
+- `handleBash`: line 224–229 (task-done nudge when task transitions to done)
+
+## Reproduction
+
+This closes a defect in already-shipped code, so it was reproduced before recon proper (in a scratch temp dir, not committed anywhere):
+
+```
+mkdir -p /tmp/nudge-repro/spearhead-attacks /tmp/nudge-repro/spearhead-knowledge/code
+cd /tmp/nudge-repro
+echo 'function greet() { return "hello"; }' > src.js
+cat > spearhead-knowledge/code/src.md <<'EOF'
+---
+type: code
+source: src.js
+---
+Old documentation.
+## Changelog
+- 2026-07-22: initial note.
+EOF
+# Read #1 (unchanged source, note exists) -- observed: silent (correct)
+echo '{"tool_name":"Read","tool_input":{"file_path":"'"$(pwd)"'/src.js"},"cwd":"'"$(pwd)"'","session_id":"repro2"}' | node hooks/knowledge-nudge.js
+
+# change src.js content, then re-read in the same session
+echo 'function greet(name) { return `hello ${name}`; }' > src.js
+# Read #2 (source changed since note was written) -- observed: silent (BUG)
+echo '{"tool_name":"Read","tool_input":{"file_path":"'"$(pwd)"'/src.js"},"cwd":"'"$(pwd)"'","session_id":"repro2"}' | node hooks/knowledge-nudge.js
+```
+
+**Observed:** both reads produce empty stdout (no nudge).
+**Expected (PROBLEM.md criterion 4):** Read #2 should produce a refresh nudge, since the source content hash no longer matches what the note last documented.
+**Root cause confirmed:** `handleRead`'s only staleness check is `fs.existsSync(path.join(projectDir, targetPath))` (knowledge-nudge.js line 163) — it never reads the note's frontmatter or compares any hash, so an existing note fully suppresses nudging regardless of source drift.
 
 ## Risks and unknowns
 
-1. **MCP server declaration in plugin.json**: Neither manifest currently has an `mcpServers` field. Confirm exact schema with Claude Code/kimi-code docs. Hypothesis: similar to turnstile's pattern (e.g. `"mcpServers": [{"name": "spearhead-knowledge", "command": "node ./mcp/server.js"}]`). Both manifests need the equivalent block — kimi-code supports MCP servers (confirmed by user), so no Claude-only fallback is needed here, just the correct schema for each.
+1. **State-file schema extension**: extending `shouldNudge` to track `(path, hash)` pairs instead of just `path` for throttling. Current schema uses `nudged: []` to track paths already nudged this session; new schema must track `{ <relPath>: <lastSeenHash> }` or a separate `hashes` field. Risk: if state file is corrupted or from a prior version, must handle gracefully (treat as fresh, never crash).
 
-2. **Embeddings API**: PROBLEM.md assumes an external embeddings API (API key config, network calls from MCP server). Design phase must specify which provider/model and whether it's configurable. Current risk: API key management, network failures, rate limiting — these are out-of-scope design decisions but block implementation.
+2. **Cross-directory import**: `hooks/knowledge-nudge.js` will import `hashContent` from `mcp-server/lib/hash.js` via `require(path.join(__dirname, '..', 'mcp-server', 'lib', 'hash.js'))`. This crosses the `hooks/` → `mcp-server/` boundary but imports only from `node:crypto` (zero external deps). PROBLEM.md assumes this is acceptable (ASSUMPTIONS line 30–31); verify no issues with plugin-loader path resolution in kimi-code.
 
-3. **Hook timeout budget (10s)**: The nudge-on-first-read and search-first-reminder hooks are subject to the 10s timeout. Creating/writing doc files is fine (I/O-bound), but if a hook needs to query the embeddings API to fetch search results in-session, that adds network latency. Current design assumes nudges only *trigger* writing (they don't do the writing themselves), so this is likely safe. Verify in design phase.
+3. **"Missing hash treated as stale" logic**: PROBLEM.md criterion 4 says a note without `source_hash` field should nudge as "refresh." Parsing handles this gracefully (unrecognized fields ignored, field absent = undefined). But deciding whether to nudge requires computing the source's current hash and comparing — we must compute it *every time* to detect changes. This is already done for new-note detection (line 163 checks existence), but the code currently does not hash the source content. New logic: always compute source hash, always compare against note's `source_hash` if present.
 
-4. **Frontmatter parsing**: New knowledge notes need YAML frontmatter parsing. Could reuse `validate-state.js`'s custom minimal YAML parser (only scalar values + lists, fixed schema), extend it to handle frontmatter (key-value), or add a lightweight dependency. Current design aims for dependency-free, so custom parser is likeliest. Frontmatter structure: `type`, `tags`, `related`, `source`, `updated` (all optional except `type`).
+4. **Duplicate code in handleRead**: currently `handleRead` checks `fs.existsSync(targetPath)` (line 163) and separately checks `shouldNudge` (line 168). The new flow must: (1) compute source hash, (2) try to read and parse the existing note, (3) compare hashes, (4) decide nudge type (new/refresh/silent), (5) call `shouldNudge` with the right key (for throttling same-hash repeats). This adds branching; ensure the three paths (new, refresh, silent) are clear.
 
-5. **Hook vs. MCP server division of labor**: Hooks nudge (write reminders); MCP server searches (reads index, queries API, returns ranked excerpts). If a nudge hook must read/write/check knowledge files while the server is running and watching them, potential race conditions or ordering issues. Design should clarify: (a) hooks never query the API (only nudge), (b) server handles all embeddings/indexing, (c) wikilink resolution (if any) happens at write time, not query time.
+5. **Refresh nudge message content**: currently `handleBash`'s task-done nudge is the only one with semantic guidance (line 225 says "update each file's code doc"). New-note and refresh messages must both ask agent to set `source_hash` frontmatter. Risk: message text changes might affect agent behavior (e.g., if agent previously ignored certain hints).
 
-6. **First npm dependency**: This will be the first project to introduce an npm dependency (`@anthropic-ai/sdk` or similar for MCP server harness). Verify if plugin installer/loader expects `node_modules/` to exist, whether `npm install` is run on plugin clone, or whether the MCP server must be bundled/vendored instead. README says "no npm installs" — clarify if that means (a) the plugin *itself* has no deps, but (b) the MCP server may have its own package.json in a subdirectory, or (c) everything must remain zero-dependency (likely not feasible for MCP SDK + embeddings client).
+6. **Wikilink-discipline line phrasing**: PROBLEM.md says "add a line on wikilink discipline (only genuinely related notes, never indiscriminate)," but the exact phrasing is not specified. This is a UX choice — the fix must write a clear, actionable line; tests will check its presence but not exact wording.
 
-7. **git worktree & file-watch interaction**: The MCP server watches `spearhead-knowledge/` via `fs.watch()`. If a task is executing in a git worktree (`spearhead-attacks/worktrees/T-<id>/`), and that task updates code doc files in the main project tree (outside the worktree), the file-watch events should fire normally. Verify no filesystem isolation surprises.
-
-8. **Cascade on attack abort/complete**: When an attack is aborted or completed (via `state.js abort` / `set-attack-complete`), should the knowledge base entries be tagged/archived, or remain searchable? PROBLEM.md doesn't specify retention; assume they remain searchable (immutable log). Design phase should confirm.
-
-9. **Test framework for MCP server**: The MCP server will need its own tests (or integration tests). Current repo uses Node's built-in `test` module. Confirm whether to extend this or add a test framework for server-specific tests (startup, file-watch, embeddings API mocking, search accuracy).
+7. **Test fixtures for hash comparison**: existing tests use `writeDocumentedNote` helper (line 50–55 of knowledge-nudge.test.js) that currently writes a note with fixed body (`'\nbody\n\n## Changelog\n'`). New tests must: (a) write a note with a specific `source_hash` and (b) modify the source file's content to trigger a hash mismatch. Current helper does not track hashes; tests will need to either extend it or write notes manually.
 
 ## Prior art
 
-1. **Cadence/session-state pattern (remind.js)**: The new nudge hooks should adopt remind.js's approach to session tracking and cadence-managed injection:
-   - Session ID resolution with fallback to `'default'`
-   - Persistent state file (`.spearhead-<hook-name>-state.json`) tracking per-session metadata (e.g., files already nudged for code-doc, timestamps)
-   - Idle expiry to treat long-silent sessions as new
-   - Graceful degradation on write failure (state-less fallback behavior)
+**State-file pattern (remind.js `promptIndex` and knowledge-nudge.js `shouldNudge`):**
+- Session ID fallback to `'default'` ensures graceful degradation on runtimes without session context
+- Idle expiry: `Date.now() - entry.at > SESSION_IDLE_MS` → reset to treat session as new
+- Per-session metadata: `state.sessions[<sessionId>] = { <key>: <value>, at: <timestamp> }`
+- Atomic write with try-catch: write fails gracefully (degraded behavior, not crash)
+- Session cleanup: evict oldest when count exceeds `MAX_TRACKED_SESSIONS`
 
-2. **CLI-as-sole-writer pattern (state.js)**: The knowledge-base nudge logic must never directly write status.yml (guard.js blocks it anyway); instead, status mutations remain through state.js. For knowledge base writes (notes, metadata), direct writes are fine (new files, not pipeline state). Use the same atomic-write pattern: temp file + rename, never in-place edits.
+**Frontmatter field pattern (knowledge-frontmatter.js):**
+- Scalars: stored in `SCALAR_FIELDS` set (line 33), parsed via `unquote` (line 37–44), serialized via `scalarOut` (line 55–57)
+- Optional fields: present in parsed object only when provided in source; serialized only if defined
+- Lists: stored in `LIST_FIELDS` set, parsed as block items under a key
+- Forward-compatibility: unrecognized keys are silently ignored (line 108–109)
+- Fallback: malformed input never throws, falls back to `{ type: 'unknown' }` (line 114–116)
 
-3. **Thin-command-over-skill pattern**: If a user-facing `/spearhead:recall` command is added (PROBLEM.md line 72), follow the existing pattern: `commands/recall.md` wrapper → `skills/spearhead-recall/SKILL.md` backend. Command itself does nothing but dispatch.
+**Hash usage (mcp-server/lib/hash.js):**
+- `hashContent(content)` is sync, takes string or Buffer, returns lowercase hex sha256 string
+- Used elsewhere in MCP server for change detection (e.g., during embeddings indexing)
+- Node's `node:crypto` only — no external deps
 
-4. **Hook matcher config (guard.js/validate-state.js)**: The plugins.json hooks list uses `matcher` field to filter events. Existing matchers: `Bash|PowerShell|Read|Edit|Write|NotebookEdit|Grep|Glob` (guard.js PreToolUse), `Write|Edit` (validate-state.js PostToolUse). New nudge hooks may need similar matchers (e.g., Read-triggered nudge might matcher on `Read`). Confirm the matcher syntax and whether composition with OR/AND is supported.
+**Test helpers (knowledge-nudge.test.js):**
+- `runHook(payload, env)` — spawns hook via spawnSync, returns `{ code, out, err }`
+- `projectDir()` — mkdtemp with spearhead-attacks/ subdir
+- `writeSourceFile(dir, relPath, contents)` — writes a source file to a temp project
+- `writeDocumentedNote(dir, relSource)` — writes a note at computed path with default body
+- `setupImplementedLockedTask(dir, filesCsv)` — drives state.js through plan-approved → task locked
+- Session/state-file inspection: tests read `.knowledge-nudge-state.json` directly (line 114–118 of knowledge-nudge.test.js)
 
-5. **Wikilink format**: Use `[[spearhead-knowledge/<type>/<slug>.md]]` as the canonical wikilink path (consistent with PROBLEM.md's naming scheme). Obsidian and other graph tools should recognize this format.
+**Nudge message structure (existing examples):**
+- `handleRead` new-note (line 170–174): names the exact target path and mentions frontmatter/Changelog
+- `handleBash` task-done (line 224–229): names the task ID and attack ID, lists each file's doc target
 
 ## Budget
 
-- **Reads used**: 13 file reads
-  - PROBLEM.md, plugin.json (Claude + kimi), hooks/remind.js, guard.js, validate-state.js (partial), state.js (partial), commands/recon.md, skills/spearhead-recon/SKILL.md, README.md (2 sections), remind.test.js header, plugin structure via bash
-- **Characters used**: ~35k (well under 60k limit)
-- **Skipped**: No full reads of test files beyond headers; CI/CD config (if any); detailed agent implementations; full scripts/state.js command reference (read only 150 lines of 400+).
+**Reads used: 11**
+1. Prior CONTEXT.md from A-1 (confirms conventions still accurate)
+2. PROBLEM.md (approved scope and acceptance criteria)
+3. `hooks/knowledge-nudge.js` (exact implementation of handleRead, shouldNudge, state-file schema)
+4. `lib/knowledge-frontmatter.js` (field list, parse/serialize pattern)
+5. `mcp-server/lib/hash.js` (hashContent signature and implementation)
+6. `hooks/knowledge-nudge.test.js` (first 100 lines: runHook, projectDir, helpers)
+7. `lib/knowledge-frontmatter.test.js` (first 80 lines: parse/serialize test pattern, round-trip)
+8. `hooks/remind.js` (first 60 lines: sessionKeyFrom and Session_IDLE_MS; lines 60–129: promptIndex state-file schema and idle-expiry logic)
+9. `hooks/knowledge-nudge.test.js` (lines 100–150: state-file inspection, idle-expiry test, extension heuristic, Bash matcher)
+10. `lib/knowledge-frontmatter.test.js` (lines 80–130: round-trip tests, serialization details)
+11. Bash `find` for test-file inventory (confirm test structure across repo)
 
-**Verdict**: Budget healthy; no hard gates hit. Full context gathered on conventions, wiring, dependency philosophy, hook I/O, and manifest schemas. Ready for design phase.
+**Characters used: ~48,000 (well under 60k limit)**
+
+**Skipped (budget healthy):**
+- Full test suites for other modules (hash.test.js, validate-state.test.js, etc.) — not needed; know the patterns
+- MCP server implementation details (embeddings, index, file-watch) — already shipped, untouched
+- scripts/knowledge-path.js implementation details — used as a black box (computeKnowledgePath)
+- Detailed remind.js beyond idle-expiry pattern (full message construction, rules injection) — conventions already clear
+
+**Verdict**: Budget healthy; no hard gates hit. All affected files' current signatures and patterns captured; state-file schema extension strategy clear; test pattern and helpers understood. Ready for design phase.

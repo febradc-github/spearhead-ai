@@ -1,166 +1,46 @@
 ## Problem statement
 
-Spearhead attacks accumulate a rich decision record per attack (`PROBLEM.md`,
-`DESIGN.md`, `PLAN.md`, task files, verification reports, `RETRO.md`), but
-there is no way to search or recall this history across attacks — and no way
-to search the rest of a project's knowledge (README, docs, wiki, or an
-understanding of the source code itself) either. Every time an AI agent needs
-information about the project, it falls back to reading files directly —
-often many of them, by trial and error — which wastes tokens. The user wants
-a "second brain" for the spearhead plugin: a searchable, growing knowledge
-base that agents consult first, so they can find an answer instead of
-re-deriving it by reading the repository.
+A-1's retro (`spearhead-attacks/retro/RETRO.md`) found that `hooks/knowledge-nudge.js`'s `Read` matcher only partially satisfies two of the original second-brain feature's acceptance criteria:
+
+1. **Criterion 6, second half**: re-reading a source file *after it changed* since its note was last written should re-nudge the agent to refresh the note with a new `## Changelog` entry. Currently `handleRead`'s only staleness check is `fs.existsSync(targetPath)` — it never compares the source's current content against what the note last documented, so a changed-but-already-documented file is silently never re-nudged.
+2. **Criterion 8**: notes should only include `[[wikilinks]]` to genuinely related notes, never indiscriminately. The shipped nudge text never mentions wikilinks at all — no guidance is given to the agent authoring the note.
 
 ## Real goal
 
-Give any project using spearhead a persistent, queryable knowledge base that
-combines (a) spearhead's own decision record, (b) existing project
-documentation (README, docs/, wiki), and (c) new knowledge spearhead itself
-generates opportunistically as it works — so both the user and Claude Code
-agents can retrieve relevant context via natural-language search first,
-falling back to reading source files only when the index has no answer. The
-knowledge base grows the more spearhead is used, even on projects with thin
-existing documentation.
+Make the code-doc-on-first-read nudge actually detect when a documented source has drifted from its note (not just whether a note exists at all), and give the agent explicit wikilink-discipline guidance when it's nudged to write or refresh a note — closing the two gaps without touching anything else in the already-shipped second-brain feature (MCP server, index, search, task-done nudge logic, `remind.js`).
 
 ## In scope
 
-- **Semantic search index** (embeddings-based) over three knowledge sources:
-  1. Spearhead's own decision record: `PROBLEM.md`, `DESIGN.md`, `PLAN.md`,
-     task files, verification reports (`V-<n>.<k>.md`), `RETRO.md`,
-     `CHANGELOG.md`.
-  2. General project documentation: `README.md`, `docs/`, wiki-style
-     markdown already present in the repo.
-  3. A new, persistent knowledge store spearhead grows over time (see
-     opportunistic capture below).
-- **Opportunistic, automatic capture**, mediated entirely through spearhead's
-  own hooks — not gated to being mid-pipeline-phase, but always mediated by
-  the plugin (fires whenever spearhead is installed and active in the
-  project, pipeline attack running or not):
-  - **Code documentation**: the first time any source file is read and no
-    doc exists yet for it, spearhead nudges the current agent (same pattern
-    as `remind.js`'s existing reminders) to write one under `code/`. A
-    re-read of an already-documented, *unchanged* file does not duplicate
-    the note; a re-read after the source changed refreshes the existing note
-    in place. Additionally, when a task transitions to `done` (post
-    mechanical + verifier gates), the coding agent updates the documentation
-    for every source file that task's diff touched — creating it if it
-    doesn't exist yet, or updating it and appending a `## Changelog` entry
-    (referencing the task and attack) if it does.
-  - **Decision/architecture knowledge**: recon/design/execute/verify work
-    opportunistically captures reusable notes (why an approach was chosen or
-    rejected, architecture observations) into `decisions/` and
-    `architecture/`, in addition to the attack-scoped files those phases
-    already produce.
-- **Search-first reminder**: a nudge (new hook, same family as `remind.js`)
-  that reminds the agent, on user inquiries, to use the search tool below
-  before reading source files directly — search first, read only if the
-  index has no answer.
-- **Query interface: a bundled MCP server**, declared in `.claude-plugin/
-  plugin.json` (and the kimi-code equivalent), not a slash command:
-  - Exposes a `search` tool: natural-language query in, ranked excerpts with
-    source pointers out (cosine similarity over local embeddings — genuine
-    semantic ranking, not grep or keyword matching).
-  - **File-watches** the three knowledge sources (`fs.watch`, Node
-    built-in) and re-embeds a note automatically when it's created or
-    changed — no manual "rebuild the index" step.
-  - Calls the embeddings API via Node's built-in `fetch` — no HTTP client
-    dependency; the only new dependency is the MCP SDK itself, which is
-    acceptable here because the server is a persistent process, not a
-    hook bound by the 10s hook timeout / dependency-free constraint that
-    `guard.js`/`remind.js`/`state.js` operate under.
-  - A thin `/spearhead:recall` command may still exist as a user-facing
-    wrapper, but the agent itself calls the MCP `search` tool directly.
-- **Obsidian-compatible knowledge graph**:
-  - Notes use `[[wikilink]]` cross-references to genuinely related notes
-    only — no indiscriminate linking.
-  - Every note carries categorizing frontmatter (`type`, `tags`) so the user
-    can color-code/group the graph by type in Obsidian's own graph view.
-- **Storage root**: a top-level `spearhead-knowledge/` directory, sibling to
-  `spearhead-attacks/` (not nested inside it) — `spearhead-attacks/` stays
-  pipeline state only; `spearhead-knowledge/` holds the second-brain
-  knowledge base and its index.
-- **Naming convention**:
-  - `spearhead-knowledge/code/<parent-folder>-<basename>.md` — e.g.
-    `spearhead-knowledge/code/frontend-utils.md` for `src/frontend/utils.ts`.
-    On a genuine collision (same computed slug, different `source:`),
-    escalate one more parent level for the *new* note only; existing notes
-    are never renamed.
-  - `spearhead-knowledge/decisions/ATK<n>-<topic-slug>.md`
-  - `spearhead-knowledge/architecture/<topic-slug>.md`
-- **Code documentation content** includes a `## Changelog` section recording
-  each time the note is generated or refreshed (date + what changed/why).
-- **Writing style**: direct, minimal commentary, factual — no fluff beyond
-  what's needed to convey intent and content.
-- Works across multiple attacks within one project (A-1, A-2, ...).
+- `lib/knowledge-frontmatter.js`: add a `source_hash` scalar field to `parseFrontmatter`/`serializeFrontmatter`, alongside the existing `type`, `tags`, `related`, `source`, `updated` fields.
+- `hooks/knowledge-nudge.js`'s `handleRead`: compute the source file's current content hash (reusing `mcp-server/lib/hash.js`'s `hashContent` — no new hashing logic) and compare it against the existing note's `source_hash` frontmatter to decide new-note vs. refresh vs. silent.
+- Both the new-note and refresh nudge messages: instruct the agent to set `source_hash` in the note's frontmatter, and add a line on wikilink discipline (only genuinely related notes, never indiscriminate).
+- `handleBash`'s task-done nudge message: also gets the wikilink-discipline line, for consistency (a note can be authored/refreshed via either trigger).
+- Tests for all of the above, same `spawnSync`-fixture pattern as the existing suite.
 
 ## Out of scope
 
-- Self-hosted/local embedding models — v1 uses an external embeddings API.
-- Cross-project search (indexing spans one project only).
-- A UI beyond the CLI/agent query interface — Obsidian itself is the viewer;
-  the plugin does not build a dashboard or control Obsidian's app settings.
-- Rewriting or summarizing existing project docs (README etc.) — those are
-  indexed as-is, not regenerated.
-- Indexing arbitrary non-documentation source (the code itself is not
-  embedded wholesale — only the generated code documentation notes are).
+- The MCP server, index, or search logic (already shipped, untouched).
+- `handleBash`'s existing detection/read logic for which files to nudge (only its message text changes, per above).
+- `remind.js` / the search-first reminder (already shipped, untouched).
+- Migrating or backfilling `source_hash` into any notes that already exist on disk from before this fix — a note without `source_hash` is simply treated as stale on next read (already covered by the acceptance criteria below), not proactively rewritten.
+- Any change to how `scripts/knowledge-path.js` computes target paths.
 
 ## Assumptions
 
-- Embeddings and index metadata are stored as local flat files under
-  `spearhead-knowledge/index/`, consistent with the plugin's file-based,
-  dependency-light model; the MCP server reads/writes them directly (no
-  external vector database).
-- The specific embeddings provider/model is a design-phase decision;
-  requires an API key the user configures (network calls happen inside the
-  MCP server, at file-watch-triggered index time and at query time).
-- The nudge mechanism (code-doc-on-first-read, search-first-reminder,
-  task-done doc updates) is a new hook or extension of `remind.js`'s
-  pattern; exact hook wiring is a design-phase decision. These nudges are
-  separate from the MCP server: hooks nudge agents to *write* notes; the
-  server only indexes and searches what's already on disk.
-- Opportunistic capture writes files directly (not through `state.js`, since
-  it never touches `spearhead-attacks/status.yml` or pipeline phase state).
-- Obsidian color-coding is enabled via frontmatter only; actual graph colors
-  are configured by the user inside Obsidian, not by the plugin.
+- **Hash reuse**: `mcp-server/lib/hash.js`'s `hashContent` is imported directly from `hooks/knowledge-nudge.js`. It has zero external dependencies (Node's built-in `node:crypto` only), so this doesn't violate hooks' dependency-free convention in practice, even though it crosses the `mcp-server/` directory boundary. No new hashing logic is written.
+- **Wikilink guidance scope**: applies to all three nudge-message call sites (new-note, refresh, task-done), not just the `Read` matcher's messages, since any of the three can result in a note being authored or edited.
+- **Refresh-nudge throttling**: to avoid nudging on every single read of a still-undocumented-refresh file within one session, the refresh nudge is throttled per `(relative source path, current source hash)` pair using the same session/idle-expiry state file `handleRead` already maintains — so a file whose content changed gets nudged once per distinct new hash per session (idle-expiry still applies as today), not once per every read.
+- **Missing `source_hash` on an existing note** (i.e., a note written before this fix shipped, or otherwise missing the field): treated as stale — nudges once with refresh framing, same as a genuine hash mismatch.
+- **Session state file format**: extending the existing `.knowledge-nudge-state.json` schema (adding hash-tracking alongside the existing `nudged`/`at` fields) rather than introducing a second state file.
 
 ## Acceptance criteria
 
-1. Starting the MCP server against a project with at least one completed
-   spearhead attack and some general docs (README/docs/wiki) produces a
-   local index containing embeddings for all three knowledge sources
-   (spearhead decision record, general docs, opportunistic notes), with no
-   manual index-build step required.
-2. Calling the MCP server's `search` tool with a natural-language question
-   returns at least one relevant excerpt with a correct source file pointer,
-   verifiable against the actual file content.
-3. Creating or editing a note under the watched knowledge sources while the
-   server is running updates only that note's index entry, automatically,
-   without a manual rebuild (verifiable via before/after index diff).
-4. Reading an undocumented source file for the first time in a
-   spearhead-active project results in a reminder that leads to a code doc
-   being created under `code/` with correct naming and a populated
-   `## Changelog` section.
-5. Two source files that would compute the same base slug (same basename,
-   different parent folders) are disambiguated by parent-folder prefix
-   without either file's note ever needing to be renamed.
-6. Re-reading an already-documented, unchanged source file does not create a
-   duplicate note; re-reading after the source changed updates the existing
-   note and appends a new `## Changelog` entry.
-7. A user inquiry triggers a reminder to search the index before source
-   files are read, verifiable by the reminder firing on relevant prompts.
-8. Notes carry `type`/`tags` frontmatter and only include `[[wikilinks]]` to
-   genuinely related notes, not indiscriminate cross-links.
-9. None of the above (MCP server indexing/search, opportunistic capture)
-   requires raw Write/Edit to `spearhead-attacks/status.yml` or alters pipeline
-   phase state (`state.js show` unchanged before/after).
-10. If the embeddings API key is missing or the API call fails, the MCP
-    server reports a clear, named error on the affected tool call rather
-    than silently producing an empty or corrupt index.
-11. The feature ships as part of the spearhead plugin (skills/commands/
-    scripts/hooks/MCP server, declared in `.claude-plugin/plugin.json` and
-    the kimi-code equivalent), installable and usable by any project that
-    installs spearhead — not hardcoded to this repo.
-12. When a task transitions to `done`, every source file in that task's
-    diff has its code documentation updated (created if missing) with a new
-    `## Changelog` entry referencing the task and attack that caused the
-    change.
+1. `lib/knowledge-frontmatter.js`'s `parseFrontmatter`/`serializeFrontmatter` round-trip a `source_hash` field the same way they already round-trip `type`/`tags`/`related`/`source`/`updated`; a note lacking the field parses without error.
+2. `handleRead`, on a read of a source file with no existing note at that target path: unchanged behavior (new-note nudge), and the nudge message now also asks the agent to set `source_hash` and includes the wikilink-discipline line.
+3. `handleRead`, on a read of a source file whose note exists and whose `source_hash` matches the source's current content hash: no nudge, regardless of session (source unchanged since documented).
+4. `handleRead`, on a read of a source file whose note exists but `source_hash` is missing or does not match the source's current content hash: nudges with refresh framing (names the existing note path, asks for an in-place update plus a new `## Changelog` entry, not a duplicate note), and this fires even within a session/idle window that would otherwise suppress a repeat nudge for the *same* hash — because a new hash is a distinct event from a repeat read at the same hash.
+5. A refresh nudge for the same `(path, hash)` pair does not repeat within the same session/idle window (throttled the same way the existing no-repeat-nudge behavior works today).
+6. Every nudge message that can lead to a note being authored or updated (new-note, refresh, and task-done) includes a line instructing the agent to use `[[wikilinks]]` only for genuinely related notes, never indiscriminately.
+7. The `Bash|PowerShell` task-done matcher's detection logic (which task, which files, when it fires) is unchanged — verified by the existing task-done tests still passing unmodified in intent (message content may differ only by the added wikilink line).
+8. `node hooks/knowledge-nudge.test.js` and `node lib/knowledge-frontmatter.test.js` both pass, including new tests for: matching-hash silence, mismatched/missing-hash refresh nudge, same-hash no-repeat throttling, and wikilink-line presence in all three message call sites.
+9. No functional change to the MCP server, index/search logic, `scripts/knowledge-path.js`'s path computation, or `remind.js` (diff confined to `hooks/knowledge-nudge.js`, `hooks/knowledge-nudge.test.js`, `lib/knowledge-frontmatter.js`, `lib/knowledge-frontmatter.test.js`).

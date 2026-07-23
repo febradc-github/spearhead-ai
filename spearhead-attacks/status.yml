@@ -1,11 +1,11 @@
 attack:
-  id: A-1
-  title: "Second brain: plugin decision/design documentation system"
-  started: 2026-07-22
+  id: A-2
+  title: "Knowledge-nudge staleness detection + wikilink discipline"
+  started: 2026-07-23
   state: complete
   gitignore_declined: false
-attack_counter: 2
-counter: 11
+attack_counter: 3
+counter: 3
 base_branch: main
 verify_lock: null
 phases:
@@ -17,169 +17,31 @@ phases:
   retro: complete
 tasks:
   - id: T-1
-    title: "MCP server skeleton + dual-runtime manifest declaration"
+    title: "source_hash scalar frontmatter field"
     status: done
     mode: background
     branch: spearhead/T-1
     worktree: null
-    dispatched_at: 2026-07-22T08:41:18.723Z
-    depends_on: []
-    files:
-      - mcp-server/package.json
-      - mcp-server/package-lock.json
-      - mcp-server/server.js
-      - mcp-server/server.test.js
-      - .claude-plugin/plugin.json
-      - .kimi-plugin/plugin.json
-      - .gitignore
-    parallel_approved: false
-    attempts: 0
-    verify_attempts: 1
-  - id: T-2
-    title: "Shared frontmatter parser"
-    status: done
-    mode: background
-    branch: spearhead/T-2
-    worktree: null
-    dispatched_at: 2026-07-22T08:42:12.581Z
+    dispatched_at: 2026-07-23T05:12:17.656Z
     depends_on: []
     files:
       - lib/knowledge-frontmatter.js
       - lib/knowledge-frontmatter.test.js
-    parallel_approved: true
-    attempts: 0
-    verify_attempts: 1
-  - id: T-3
-    title: "Content hashing + embeddings client module"
-    status: done
-    mode: background
-    branch: spearhead/T-3
-    worktree: null
-    dispatched_at: 2026-07-22T09:05:19.903Z
-    depends_on:
-      - T-1
-    files:
-      - mcp-server/lib/hash.js
-      - mcp-server/lib/hash.test.js
-      - mcp-server/lib/embeddings.js
-      - mcp-server/lib/embeddings.test.js
-    parallel_approved: true
-    attempts: 0
-    verify_attempts: 1
-  - id: T-4
-    title: "Index storage + cosine similarity"
-    status: done
-    mode: background
-    branch: spearhead/T-4
-    worktree: null
-    dispatched_at: 2026-07-22T09:05:35.079Z
-    depends_on:
-      - T-1
-    files:
-      - mcp-server/lib/index-store.js
-      - mcp-server/lib/index-store.test.js
-      - mcp-server/lib/similarity.js
-      - mcp-server/lib/similarity.test.js
-    parallel_approved: true
-    attempts: 0
-    verify_attempts: 1
-  - id: T-5
-    title: "File-watch pipeline wiring hash + embeddings + index store"
-    status: done
-    mode: background
-    branch: spearhead/T-5
-    worktree: null
-    dispatched_at: 2026-07-23T03:59:45.665Z
-    depends_on:
-      - T-2
-      - T-3
-      - T-4
-    files:
-      - mcp-server/lib/watch.js
-      - mcp-server/lib/watch.test.js
-      - mcp-server/lib/pipeline.js
-      - mcp-server/lib/pipeline.test.js
     parallel_approved: false
     attempts: 0
     verify_attempts: 1
-  - id: T-6
-    title: "Real search MCP tool, replacing T-1 stub"
+  - id: T-2
+    title: "handleRead staleness detection + wikilink guidance"
     status: done
     mode: background
-    branch: spearhead/T-6
+    branch: spearhead/T-2
     worktree: null
-    dispatched_at: 2026-07-23T04:25:34.819Z
+    dispatched_at: 2026-07-23T05:20:07.018Z
     depends_on:
       - T-1
-      - T-5
-    files:
-      - mcp-server/server.js
-      - mcp-server/server.test.js
-    parallel_approved: false
-    attempts: 0
-    verify_attempts: 1
-  - id: T-7
-    title: "Deterministic naming script"
-    status: done
-    mode: background
-    branch: spearhead/T-7
-    worktree: null
-    dispatched_at: 2026-07-22T09:05:35.130Z
-    depends_on:
-      - T-2
-    files:
-      - scripts/knowledge-path.js
-      - scripts/knowledge-path.test.js
-    parallel_approved: true
-    attempts: 0
-    verify_attempts: 1
-  - id: T-8
-    title: "Search-first reminder (extend remind.js + RULES.md)"
-    status: done
-    mode: background
-    branch: spearhead/T-8
-    worktree: null
-    dispatched_at: 2026-07-22T08:42:12.602Z
-    depends_on: []
-    files:
-      - hooks/remind.js
-      - rules/RULES.md
-      - hooks/remind.test.js
-    parallel_approved: true
-    attempts: 0
-    verify_attempts: 1
-  - id: T-9
-    title: "knowledge-nudge.js hook: code-doc-on-first-read + task-done doc update"
-    status: done
-    mode: background
-    branch: spearhead/T-9
-    worktree: null
-    dispatched_at: 2026-07-23T04:17:18.473Z
-    depends_on:
-      - T-1
-      - T-7
     files:
       - hooks/knowledge-nudge.js
       - hooks/knowledge-nudge.test.js
-      - hooks/hooks.json
-      - .kimi-plugin/plugin.json
-    parallel_approved: true
-    attempts: 0
-    verify_attempts: 1
-  - id: T-10
-    title: "README + CHANGELOG documentation"
-    status: done
-    mode: background
-    branch: spearhead/T-10
-    worktree: null
-    dispatched_at: 2026-07-23T04:39:45.876Z
-    depends_on:
-      - T-6
-      - T-8
-      - T-9
-    files:
-      - README.md
-      - CHANGELOG.md
     parallel_approved: false
     attempts: 0
     verify_attempts: 1
