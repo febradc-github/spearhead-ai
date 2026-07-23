@@ -40,12 +40,13 @@ one gate at a time.
   dependency-free Node scripts. No npm installs, no network calls.
 - git — execute's worktree/branch model requires the project to be a git
   repository with a clean base branch.
-- A `claude` (Claude Code) or `kimi` (kimi-code) CLI installed and
-  authenticated on `PATH` — required for the bundled `spearhead-knowledge`
-  MCP server's `search` tool (see "Second-brain knowledge base" below),
-  which ranks results by invoking whichever one is available (or the one
-  named by `SPEARHEAD_RANKING_CLI`). No third-party API key or network
-  dependency beyond that CLI itself.
+- Optional: [Obsidian](https://obsidian.md) with the Advanced URI community
+  plugin installed and enabled, only if you want `/spearhead:obsidian-graph`
+  to open the second-brain vault's graph view directly (see "Second-brain
+  knowledge base" below). Nothing else in the plugin depends on Obsidian —
+  the second-brain search itself (`guru`, see below) needs no third-party
+  CLI, API key, or network dependency of any kind; it runs on the same
+  `Glob`/`Grep`/`Read` tools every other spearhead sub-agent already has.
 
 ## Install
 
@@ -110,6 +111,7 @@ mode; the phase itself is still recorded as `phases.plan` in status.yml).
 | `/spearhead:replan` | Amends the approved plan without restarting: edit/add/split/remove `todo`/`blocked` tasks, re-validated and re-approved. The sanctioned answer to file-set overlaps. |
 | `/spearhead:abort [reason]` | Aborts the attack with a recorded reason; archives artifacts to `spearhead-attacks/archive/<timestamp>/`. History, not deletion. |
 | `/spearhead:pivot [new idea]` | Changes the idea mid-attack: one confirmation, then archives the current attack (like abort) and starts a fresh one from the new problem statement. Never reopens an approved phase in place; the monotonic phase invariant stays intact. The pipeline also routes here when it recognizes a "change the idea" request. |
+| `/spearhead:obsidian-graph` | Opens Obsidian directly to the second-brain vault's graph view (see "Second-brain knowledge base" below). Requires Obsidian and its Advanced URI community plugin. |
 
 ## Workflow
 
@@ -169,11 +171,11 @@ Commit the rest of `spearhead-attacks/` — it is the project's decision record.
 ## Second-brain knowledge base
 
 Spearhead maintains a searchable "second brain" over its own decision record
-and the project's documentation, so an agent can answer from a semantic
-index instead of re-reading source files cold. Three sources feed it:
+and the project's documentation, so an agent can answer from existing notes
+instead of re-reading source files cold. Three sources feed it:
 
 - `spearhead-knowledge/**/*.md` — the notes described below (code docs,
-  decisions, architecture).
+  decisions, design, architecture).
 - `spearhead-attacks/**/*.md` — the attack's own decision record (PROBLEM.md,
   DESIGN.md, ADRs, task files, …).
 - General project docs: the top-level `README.md` and `docs/**/*.md`.
@@ -183,56 +185,95 @@ Layout, created lazily alongside `spearhead-attacks/`:
 ```
 spearhead-knowledge/
   code/          # one note per documented source file: <parent>-<basename>.md
-  decisions/     # ATK-scoped decision/architecture notes
-  architecture/  # cross-attack architecture notes
-  index/         # embeddings.json -- the search index (legacy filename;
-                 # stores {hash, updated, type} per note, no vectors), one
-                 # flat file, atomic writes
+  decisions/     # ADR-style records of a choice made and why
+  design/        # opportunistic-capture design-rationale notes, jotted down
+                 # as a byproduct of normal work -- not tied 1:1 to a single
+                 # source file the way code/ notes are
+  architecture/  # system/component-level structure notes
 ```
+
+There is no separate search index — `guru` (below) searches these files
+directly.
 
 Every note opens with frontmatter (`type`, `tags`, `related` as
 `[[spearhead-knowledge/<type>/<slug>.md]]` wikilinks — only to genuinely
-related notes, never indiscriminate cross-links — `source`, `updated`,
-`source_hash`). `spearhead-knowledge/code/` note paths are never left to
-per-session judgment: `scripts/knowledge-path.js <source-path>` computes the
-canonical, collision-safe path (`<parent>-<basename>.md`, escalating one
-more parent level only on a genuine `source:` collision — an existing note
-is never renamed).
+related notes, never indiscriminate cross-links — `cssclasses`, `source`,
+`updated`, `source_hash`). `cssclasses` is a plain list field, parsed and
+serialized exactly like `tags`/`related` (`lib/knowledge-frontmatter.js`);
+it exists purely to drive Obsidian color-coding (see "Obsidian
+compatibility" below) and carries no meaning of its own beyond that.
+`spearhead-knowledge/code/` note paths are never left to per-session
+judgment: `scripts/knowledge-path.js <source-path>` computes the canonical,
+collision-safe path (`<parent>-<basename>.md`, escalating one more parent
+level only on a genuine `source:` collision — an existing note is never
+renamed).
 
-**Search.** The bundled `spearhead-knowledge` MCP server (`mcp-server/`,
-declared in both `.claude-plugin/plugin.json` and `.kimi-plugin/plugin.json`)
-is the sole owner of the index: it file-watches the three sources above,
-content-hashes each changed file (`sha256`), and keeps
-`spearhead-knowledge/index/embeddings.json` up to date. Indexing is purely
-local — hash, compare, store — with no network call at all, regardless of
-whether the hash matches; ranking happens separately, at query time. It
-exposes one MCP tool:
+**Search.** The `guru` sub-agent (`agents/guru.md`) is the second-brain
+lookup. It has no direct user-facing command — an already-running agent
+dispatches it internally via the Agent tool, the same pattern as
+`spearhead-scout`/`-coder`/`-verifier`. Its process:
 
-- `search(query, limit?)` — builds a `{path, excerpt}` candidate from every
-  indexed note/doc, then asks the runtime's ranking CLI (`claude` or `kimi`,
-  auto-detected — whichever is installed and authenticated — or overridden
-  via `SPEARHEAD_RANKING_CLI`) to judge which candidates are genuinely
-  relevant to the query, in relevance order. Returns the relevant matches,
-  most relevant first, up to `limit` (default 8), as `{path, excerpt}` — no
-  numeric `score` field; relevance is conveyed by array order and by
-  omission of non-matches. Non-relevant candidates are dropped entirely
-  rather than scored low, so an empty result list is a real, detectable
-  signal — "nothing genuinely relevant found" — not an artifact of a small
-  index or a malfunction. The ranking CLI being unavailable, unauthenticated,
-  or the ranking call itself failing/timing out/returning unparseable output
-  comes back as a named tool error (`RankingCliUnavailableError`,
-  `RankingCliRequestError`), never a silent empty result — that failure
-  case and a validly-empty "nothing relevant" result are distinct: the
-  latter is a successful, non-error response.
+1. Searches `spearhead-knowledge/**/*.md` with `Glob`/`Grep`/`Read` (no MCP
+   server, no index) for notes relevant to the question, across all four
+   note types.
+2. For every candidate found, cross-checks staleness: a note with no
+   `source:` field (normal for `decisions/`/`design/`/`architecture/`) is
+   trusted on its own terms; a note with a `source:` field (normal for
+   `code/`) is trusted only if the file at that path still exists and its
+   freshly-computed content hash matches the note's `source_hash`
+   frontmatter — the same hash-compare idiom `hooks/knowledge-nudge.js`
+   already uses, run in the opposite direction (starting from the note,
+   not the source read).
+3. If nothing relevant turned up, or every relevant match was stale, falls
+   back to reading/grepping the actual source tree directly.
+4. On a successful source fallback, writes a new `code/` note (or refreshes
+   an existing stale one in place, never a duplicate) at the path
+   `scripts/knowledge-path.js` computes. `decisions/`, `design/`, and
+   `architecture/` notes stay agent judgment, unchanged — `guru` never
+   writes those.
+5. Answers the original question, grounded in whichever path produced it
+   (fresh note, refreshed/new note, or source read directly), and says so
+   plainly if nothing could be found rather than fabricating an answer.
+
+kimi-code fallback: kimi-code does not support plugin-defined sub-agents, so
+`guru` cannot be dispatched there — the calling agent performs the same five
+steps inline, in its own session, using the same tools.
+
+**Obsidian compatibility.** `spearhead-knowledge/` notes are plain markdown
+with frontmatter, directly usable as an Obsidian vault — point Obsidian at
+the `spearhead-knowledge/` folder and set the vault's *display name* in
+Obsidian to match the project's root directory name (`scripts/obsidian-graph.js`
+assumes that convention when constructing its URI; see
+`/spearhead:obsidian-graph` below). `[[wikilinks]]` in `related` work
+natively with Obsidian's own linking and graph view. `cssclasses` values
+(`kb-code`, `kb-decisions`, `kb-design`, `kb-architecture`) pair with an
+opt-in CSS snippet at `spearhead-knowledge/obsidian-css-snippet.css` that
+color-codes notes by type in Obsidian's reading view — this repo never
+commits or references any `.obsidian/` configuration, so to use it, copy
+the file into your vault's `.obsidian/snippets/` folder and enable it under
+Settings -> Appearance -> CSS snippets. Also worth setting up, as a
+one-time per-vault Obsidian preference: a Graph View color group keyed on
+the `type` frontmatter field, so the four note types stand out visually in
+the graph itself, not just in reading view.
+
+`/spearhead:obsidian-graph` opens Obsidian directly to that graph view, via
+a constructed `obsidian://advanced-uri` URI and the platform's URI-open
+command (`open`/`xdg-open`/`start`). Two preconditions, both the user's
+responsibility: Obsidian must be installed, and the Advanced URI community
+plugin must be installed and enabled in the vault. Honest limitation:
+opening a URI is fire-and-forget at the OS level — the command can only
+confirm the platform-open command itself was invoked without a spawn error,
+never that Obsidian actually reached the graph view.
 
 **Opportunistic capture.** Documentation is a byproduct of normal work, not
 a separate step, via two nudge-only hook touch-points (they never write
-notes, never write `status.yml`, and never invoke the ranking CLI
-themselves — the agent does the actual writing):
+notes, never write `status.yml`, and never dispatch `guru` themselves — the
+agent does the actual searching and writing):
 
 - **Search-first** — every `remind.js` injection (full rules and the
-  one-line anchor) tells the agent to try the `spearhead-knowledge` search
-  tool before reading source files cold.
+  one-line anchor) tells the agent to dispatch `guru` to check the
+  knowledge base first, before reading source files cold — falling back to
+  source only if `guru` finds nothing.
 - **Code-doc-on-first-read, staleness-aware** (`hooks/knowledge-nudge.js`,
   `PostToolUse` on `Read`) — on every read of a source file, the hook
   content-hashes it (`sha256`, re-derived from disk every call) and derives
