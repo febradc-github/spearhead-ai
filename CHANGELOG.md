@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.8.0 — 2026-07-23
+
+- **Knowledge-nudge staleness detection + wikilink discipline (A-2).**
+  `hooks/knowledge-nudge.js`'s `handleRead` now detects source-content
+  drift via a `source_hash` frontmatter field (`lib/knowledge-frontmatter.js`),
+  not just note existence: unchanged documented files stay silent
+  regardless of session, changed ones get a refresh nudge (in-place update
+  + `## Changelog` entry) even within an idle window that would otherwise
+  suppress a repeat. All three nudge sites now also remind the agent to use
+  `[[wikilinks]]` only for genuinely related notes, not indiscriminately.
+- **MCP search minimum-score threshold (A-3).** `rankBySimilarity`
+  (`mcp-server/lib/similarity.js`) now excludes entries scoring below a
+  minimum cosine-similarity threshold (`DEFAULT_MIN_SCORE = 0.5`,
+  overridable via `SPEARHEAD_SEARCH_MIN_SCORE`) before truncating to
+  `limit`, so "nothing relevant found" is a real, detectable outcome (an
+  empty or short result list) instead of always returning the top N
+  results however irrelevant. `SEARCH_TOOL.description` documents the new
+  contract.
+- Plugin manifest versions (`.claude-plugin/plugin.json`,
+  `.kimi-plugin/plugin.json`) brought back in sync with this file — a
+  standing gap since `0.7.0` where the manifests remained at `0.6.0`.
+
 ## 0.7.0 — 2026-07-23
 
 - **Second-brain knowledge base (A-1), complete.** A searchable semantic
