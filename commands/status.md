@@ -3,5 +3,5 @@ description: "Read-only render of the attack: phases (execute derived), task boa
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-status` skill.
+Use the Skill tool to invoke the skill at `skills/spearhead-status/` (registered name `spearhead:spearhead-status`).
 </important>

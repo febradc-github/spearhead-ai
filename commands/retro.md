@@ -3,5 +3,5 @@ description: "Phase 8: criterion-by-criterion confirmation against PROBLEM.md, l
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-retro` skill.
+Use the Skill tool to invoke the skill at `skills/spearhead-retro/` (registered name `spearhead:spearhead-retro`).
 </important>

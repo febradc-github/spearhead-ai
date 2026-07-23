@@ -4,5 +4,5 @@ argument-hint: "[problem: what/why, expected vs actual, constraints]"
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-understand` skill, passing `$ARGUMENTS` and the rest of this message unchanged.
+Use the Skill tool to invoke the skill at `skills/spearhead-understand/` (registered name `spearhead:spearhead-understand`), passing `$ARGUMENTS` and the rest of this message unchanged.
 </important>

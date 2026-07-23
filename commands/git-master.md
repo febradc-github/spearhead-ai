@@ -4,5 +4,5 @@ argument-hint: "[instruction: what to do, e.g. rebase onto main]"
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-git-master` skill, passing `$ARGUMENTS` and the rest of this message unchanged.
+Use the Skill tool to invoke the skill at `skills/spearhead-git-master/` (registered name `spearhead:spearhead-git-master`), passing `$ARGUMENTS` and the rest of this message unchanged.
 </important>

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.1 — 2026-07-23
+
+- **Command-to-skill references now use the fully-qualified `plugin:skill`
+  name and point at the skill's directory.** Every `commands/*.md` wrapper
+  previously told the agent to invoke a bare skill name (e.g.
+  `` `spearhead-attack` ``), which the Skill tool does not register under —
+  the real name is `` `spearhead:spearhead-attack` ``. That mismatch let an
+  agent's invocation attempt resolve to the wrong (similarly-named) skill
+  and loop without progressing. All 16 command wrappers now read "invoke
+  the skill at `` `skills/spearhead-X/` `` (registered name
+  `` `spearhead:spearhead-X` `` )", keeping the 1:1 command-to-skill mapping
+  unambiguous. The same fix applies to the skill-to-skill routing inside
+  `spearhead-attack`, `spearhead-pivot`, and `spearhead-understand`.
+
 ## Unreleased — 2026-07-23
 
 - **MCP server replaced by the `guru` sub-agent.** `mcp-server/` is deleted

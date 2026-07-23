@@ -4,5 +4,5 @@ argument-hint: "[problem: what/why, expected vs actual, constraints]"
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-attack` skill, passing `$ARGUMENTS` and the rest of this message unchanged.
+Use the Skill tool to invoke the skill at `skills/spearhead-attack/` (registered name `spearhead:spearhead-attack`), passing `$ARGUMENTS` and the rest of this message unchanged.
 </important>

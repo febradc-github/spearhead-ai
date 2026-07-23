@@ -16,7 +16,7 @@ user-invocable: false
 
 ## Preconditions
 
-None -- this is the pipeline's entry phase. If `spearhead-attacks/status.yml` exists with an active attack whose `understand` is already `approved`, tell the user this phase is closed for the current attack and point at `/spearhead:recon` (or `/spearhead:abort` to start over). If instead the user wants to REPLACE the approved problem with a different idea (a pivot, not a refinement of this one), invoke the `spearhead-pivot` skill -- it confirms, archives the current attack, and re-enters this phase with the new idea. Never reopen `understand` in place; phases only advance.
+None -- this is the pipeline's entry phase. If `spearhead-attacks/status.yml` exists with an active attack whose `understand` is already `approved`, tell the user this phase is closed for the current attack and point at `/spearhead:recon` (or `/spearhead:abort` to start over). If instead the user wants to REPLACE the approved problem with a different idea (a pivot, not a refinement of this one), invoke the `spearhead:spearhead-pivot` skill -- it confirms, archives the current attack, and re-enters this phase with the new idea. Never reopen `understand` in place; phases only advance.
 
 ## Process
 

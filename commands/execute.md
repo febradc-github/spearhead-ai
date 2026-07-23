@@ -4,5 +4,5 @@ argument-hint: "[T-id]"
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-execute` skill, passing `$ARGUMENTS` and the rest of this message unchanged.
+Use the Skill tool to invoke the skill at `skills/spearhead-execute/` (registered name `spearhead:spearhead-execute`), passing `$ARGUMENTS` and the rest of this message unchanged.
 </important>

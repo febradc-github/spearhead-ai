@@ -4,5 +4,5 @@ argument-hint: "[T-id | --lock]"
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-unblock` skill, passing `$ARGUMENTS` and the rest of this message unchanged.
+Use the Skill tool to invoke the skill at `skills/spearhead-unblock/` (registered name `spearhead:spearhead-unblock`), passing `$ARGUMENTS` and the rest of this message unchanged.
 </important>

@@ -4,5 +4,5 @@ argument-hint: "[new idea / direction: what changes and why]"
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-pivot` skill, passing `$ARGUMENTS` and the rest of this message unchanged.
+Use the Skill tool to invoke the skill at `skills/spearhead-pivot/` (registered name `spearhead:spearhead-pivot`), passing `$ARGUMENTS` and the rest of this message unchanged.
 </important>

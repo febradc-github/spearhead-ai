@@ -3,5 +3,5 @@ description: "Phase 2: budgeted context gathering (and bug reproduction) into CO
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-recon` skill.
+Use the Skill tool to invoke the skill at `skills/spearhead-recon/` (registered name `spearhead:spearhead-recon`).
 </important>

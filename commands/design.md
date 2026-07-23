@@ -3,5 +3,5 @@ description: "Phase 3: candidate approaches with tradeoffs and failure modes; DE
 ---
 
 <important>
-Use the Skill tool to invoke the `spearhead-design` skill.
+Use the Skill tool to invoke the skill at `skills/spearhead-design/` (registered name `spearhead:spearhead-design`).
 </important>
