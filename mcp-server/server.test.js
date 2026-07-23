@@ -129,15 +129,19 @@ test('server starts the T-5 watch pipeline on boot: watched dirs exist and a pre
 
       // Boot also runs a startup reconcile() (T-5) over the pre-existing
       // fixture file below, with no manual index-build step (PROBLEM.md
-      // #1) -- the embeddings key is deliberately unset for this spawn, so
-      // reconcile is expected to reach it and mark it pending (not leave it
-      // absent from the index) rather than silently skip it.
+      // #1) -- the embeddings key is deliberately unset for this spawn, but
+      // indexing has no embeddings dependency, so reconcile is expected to
+      // reach it and produce a normal successful entry (not leave it absent
+      // from the index) rather than silently skip it.
       const seen = await waitFor(() => {
         const index = loadIndex(root);
         return index['spearhead-knowledge/code/pre-existing.md'];
       });
       assert.ok(seen, 'boot-time reconcile must have reached the pre-existing fixture file');
-      assert.equal(seen.pending, true);
+      assert.equal(seen.pending, undefined);
+      assert.ok(seen.hash, 'entry must have a hash');
+      assert.ok(seen.updated, 'entry must have an updated timestamp');
+      assert.ok(seen.type, 'entry must have a type');
     },
     { setup: (root) => writeFile(root, 'spearhead-knowledge/code/pre-existing.md', 'pre-existing content') }
   );
