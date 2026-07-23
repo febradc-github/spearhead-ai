@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.7.0 — 2026-07-23
+
+- **Second-brain knowledge base (A-1), complete.** A searchable semantic
+  index over spearhead's own decision record and the project's
+  documentation, kept current with no separate "go write docs" step.
+  - Three knowledge sources watched: `spearhead-knowledge/**/*.md`,
+    `spearhead-attacks/**/*.md` (the decision record), and general docs
+    (`README.md`, `docs/**/*.md`).
+  - The bundled `spearhead-knowledge` MCP server (`mcp-server/`) now runs
+    the real file-watch pipeline at boot (hash-gated embeddings queue,
+    sequential to avoid rate-limit bursts, self-healing reconcile on
+    restart) and exposes a real `search(query, limit?)` tool — ranks the
+    on-disk index by cosine similarity and returns `{path, excerpt, score}`,
+    replacing the T-1 stub. A missing `SPEARHEAD_EMBEDDINGS_API_KEY` or a
+    failed embeddings call surfaces as a named tool error, never a silent
+    empty result.
+  - `remind.js` / `rules/RULES.md` nudge search-first before reading source
+    files cold; the new `hooks/knowledge-nudge.js` nudges a code doc on a
+    session's first read of an undocumented source file (naming computed by
+    `scripts/knowledge-path.js`, never left to per-session judgment), and
+    nudges a `## Changelog` update on each task's files when `state.js
+    transition <T-id> done` succeeds. Hooks only ever nudge — writing notes,
+    indexing, and calling the embeddings API stay inside the MCP server and
+    the agent's own next turn, respectively.
+  - `spearhead-knowledge/` layout: `code/` (one note per source file),
+    `decisions/` (ATK-scoped), `architecture/` (cross-attack), `index/`
+    (`embeddings.json`, the single atomically-written index file).
+  - See the README's "Second-brain knowledge base" section for the full
+    picture.
+
 ## 0.6.0 — 2026-07-22
 
 - **Second-brain knowledge base (in progress, A-1), continued:**
