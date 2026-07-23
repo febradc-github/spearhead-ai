@@ -40,12 +40,12 @@ one gate at a time.
   dependency-free Node scripts. No npm installs, no network calls.
 - git — execute's worktree/branch model requires the project to be a git
   repository with a clean base branch.
-- `SPEARHEAD_EMBEDDINGS_API_KEY` — required for the bundled
-  `spearhead-knowledge` MCP server's `search` tool (see "Second-brain
-  knowledge base" below). This is the one exception to the dependency-free,
-  offline rule above: `mcp-server/` has its own `package.json`/`node_modules`
-  and makes network calls to an embeddings API. Nothing else in the plugin
-  does either.
+- A `claude` (Claude Code) or `kimi` (kimi-code) CLI installed and
+  authenticated on `PATH` — required for the bundled `spearhead-knowledge`
+  MCP server's `search` tool (see "Second-brain knowledge base" below),
+  which ranks results by invoking whichever one is available (or the one
+  named by `SPEARHEAD_RANKING_CLI`). No third-party API key or network
+  dependency beyond that CLI itself.
 
 ## Install
 
@@ -185,7 +185,9 @@ spearhead-knowledge/
   code/          # one note per documented source file: <parent>-<basename>.md
   decisions/     # ATK-scoped decision/architecture notes
   architecture/  # cross-attack architecture notes
-  index/         # embeddings.json -- the search index, one flat file, atomic writes
+  index/         # embeddings.json -- the search index (legacy filename;
+                 # stores {hash, updated, type} per note, no vectors), one
+                 # flat file, atomic writes
 ```
 
 Every note opens with frontmatter (`type`, `tags`, `related` as
@@ -200,26 +202,32 @@ is never renamed).
 **Search.** The bundled `spearhead-knowledge` MCP server (`mcp-server/`,
 declared in both `.claude-plugin/plugin.json` and `.kimi-plugin/plugin.json`)
 is the sole owner of the index: it file-watches the three sources above,
-content-hashes each changed file (`sha256`, skipping the embeddings call
-when nothing actually changed), and keeps
-`spearhead-knowledge/index/embeddings.json` up to date. It exposes one MCP
-tool:
+content-hashes each changed file (`sha256`), and keeps
+`spearhead-knowledge/index/embeddings.json` up to date. Indexing is purely
+local — hash, compare, store — with no network call at all, regardless of
+whether the hash matches; ranking happens separately, at query time. It
+exposes one MCP tool:
 
-- `search(query, limit?)` — embeds the query, ranks every indexed note/doc
-  by cosine similarity, and returns the top `limit` (default 8) as
-  `{path, excerpt, score}`. Results are filtered by a minimum relevance
-  score (`SPEARHEAD_SEARCH_MIN_SCORE`, default `0.5`) before the `limit`
-  truncation, so an empty or short result list is a real, detectable
-  signal — "nothing sufficiently relevant found" — not an artifact of a
-  small index. A missing `SPEARHEAD_EMBEDDINGS_API_KEY` or a failed
-  embeddings call comes back as a named tool error (`MissingApiKeyError`,
-  `EmbeddingsRequestError`), never a silent empty result — the threshold
-  filter and the error contract are distinct: an empty-due-to-threshold
-  result is a successful, non-error response.
+- `search(query, limit?)` — builds a `{path, excerpt}` candidate from every
+  indexed note/doc, then asks the runtime's ranking CLI (`claude` or `kimi`,
+  auto-detected — whichever is installed and authenticated — or overridden
+  via `SPEARHEAD_RANKING_CLI`) to judge which candidates are genuinely
+  relevant to the query, in relevance order. Returns the relevant matches,
+  most relevant first, up to `limit` (default 8), as `{path, excerpt}` — no
+  numeric `score` field; relevance is conveyed by array order and by
+  omission of non-matches. Non-relevant candidates are dropped entirely
+  rather than scored low, so an empty result list is a real, detectable
+  signal — "nothing genuinely relevant found" — not an artifact of a small
+  index or a malfunction. The ranking CLI being unavailable, unauthenticated,
+  or the ranking call itself failing/timing out/returning unparseable output
+  comes back as a named tool error (`RankingCliUnavailableError`,
+  `RankingCliRequestError`), never a silent empty result — that failure
+  case and a validly-empty "nothing relevant" result are distinct: the
+  latter is a successful, non-error response.
 
 **Opportunistic capture.** Documentation is a byproduct of normal work, not
 a separate step, via two nudge-only hook touch-points (they never write
-notes, never write `status.yml`, and never call the embeddings API
+notes, never write `status.yml`, and never invoke the ranking CLI
 themselves — the agent does the actual writing):
 
 - **Search-first** — every `remind.js` injection (full rules and the

@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased — 2026-07-23
+
+- **CLI-based ranking replaces embeddings.** The second-brain
+  `search` tool no longer depends on a third-party embeddings API
+  (Voyage AI): `mcp-server/lib/rank.js` now ranks candidate notes by
+  invoking the runtime's already-installed, already-authenticated `claude`
+  or `kimi` CLI in non-interactive mode, asking it to judge relevance
+  directly instead of computing and comparing embedding vectors.
+  `SPEARHEAD_EMBEDDINGS_API_KEY`, `SPEARHEAD_EMBEDDINGS_ENDPOINT`, and
+  `SPEARHEAD_SEARCH_MIN_SCORE` are gone; a new `SPEARHEAD_RANKING_CLI`
+  env var overrides the CLI auto-detection (`"claude"` or `"kimi"`).
+  Indexing (`mcp-server/lib/pipeline.js`) is now purely local hashing with
+  no network call at index time at all. `search` results no longer carry
+  a numeric `score` field — relevance is conveyed by array order and by
+  omission of non-matches instead.
+
 ## 0.8.0 — 2026-07-23
 
 - **Knowledge-nudge staleness detection + wikilink discipline (A-2).**
