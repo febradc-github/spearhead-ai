@@ -7,16 +7,21 @@
 // never calls the embeddings API itself (DESIGN.md ADR-003); the agent does
 // the actual writing as a natural next step.
 //
-// Read matcher (PROBLEM.md acceptance criterion 4): on a read of a source
+// Read matcher (PROBLEM.md acceptance criteria 2-6): on a read of a source
 // file (extension heuristic, excludes .md/config/lockfiles -- see
 // isSourceFile), computes the file's canonical knowledge-note path via
-// scripts/knowledge-path.js. If no note there already documents this exact
-// source (source: frontmatter match), nudges the agent to write one, naming
-// the exact target path. Session-scoped "already nudged this file"
-// tracking (same idle-expiry pattern as remind.js) keeps re-reads within a
-// session from re-nudging; an already-documented file is never nudged
-// regardless of session, because the existence check is re-derived from
-// disk on every call.
+// scripts/knowledge-path.js and derives a three-way state from a single
+// content-hash comparison (source_hash, T-1): no note there -> `new`
+// (nudge to write one, naming the exact target path); note exists and its
+// source_hash matches the source's current content hash -> `current`
+// (never nudge, regardless of session); note exists but source_hash is
+// missing or mismatched -> `stale` (nudge with refresh framing -- in-place
+// update plus a new ## Changelog entry, not a duplicate note). `new` and
+// `stale` both go through the session-scoped "already nudged this (path,
+// hash) pair" throttle (same idle-expiry pattern as remind.js) -- a file
+// that changes again after being nudged once naturally re-nudges, since
+// its hash changes; `current` skips the throttle entirely, since it never
+// nudges.
 //
 // Bash/PowerShell matcher (PROBLEM.md acceptance criterion 12): on a
 // successful `state.js transition <T-id> done` invocation -- detected the
@@ -25,6 +30,10 @@
 // (read-only; this hook never writes it) and nudges the agent to update
 // each file's code doc with a new ## Changelog entry referencing the task
 // and attack.
+//
+// All three nudge message sites (new-note, refresh, task-done) include a
+// line reminding the agent to use [[wikilinks]] only for genuinely related
+// notes (PROBLEM.md acceptance criterion 6).
 //
 // Loaded both by direct execution and by kimi-code's __plugin_run_node
 // require() shim; runs on load unless SPEARHEAD_HOOK_LIB=1 (library/tests).
@@ -35,8 +44,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const inv = require(path.join(__dirname, 'validate-state.js'));
 const { computeKnowledgePath } = require(path.join(__dirname, '..', 'scripts', 'knowledge-path.js'));
+const { hashContent } = require(path.join(__dirname, '..', 'mcp-server', 'lib', 'hash.js'));
+const { parseFrontmatter } = require(path.join(__dirname, '..', 'lib', 'knowledge-frontmatter.js'));
 
 const STATE_FILE = '.knowledge-nudge-state.json';
+// Reused verbatim across all three nudge message sites (new-note, refresh,
+// task-done) -- PROBLEM.md acceptance criterion 6.
+const WIKILINK_LINE = 'Use `[[wikilinks]]` only for genuinely related notes -- do not add indiscriminate cross-links.';
 const MAX_TRACKED_SESSIONS = 20;
 const MAX_NUDGED_PER_SESSION = 500;
 // Same idle-expiry constant/pattern as remind.js: a session silent this
@@ -117,20 +131,29 @@ function loadState(statePath) {
   return { sessions: {} };
 }
 
-// Returns true the first time `relPath` is seen for `sessionId` (or after
-// that session has gone idle long enough to be treated as new); false on
-// every subsequent call within the same session. Always records the call,
+// Returns true the first time `relPath` is seen at `currentHash` for
+// `sessionId` (or after that session has gone idle long enough to be
+// treated as new); false on every subsequent call within the same session
+// for the same (path, hash) pair. `nudged` maps path -> last-nudged-hash
+// (not an array of paths): a file that changes again after being nudged
+// once naturally re-nudges, since its hash no longer matches the recorded
+// one. Old-format state (array `nudged`, from before this field became a
+// map) is treated as empty rather than crashing. Always records the call,
 // so it degrades gracefully to "nudge every time" if the state file cannot
 // be written (read-only project).
-function shouldNudge(statePath, sessionId, relPath) {
+function shouldNudge(statePath, sessionId, relPath, currentHash) {
   const state = loadState(statePath);
-  const entry = state.sessions[sessionId] || { nudged: [], at: 0 };
+  const entry = state.sessions[sessionId] || { nudged: {}, at: 0 };
   const idle = entry.at && Date.now() - entry.at > SESSION_IDLE_MS;
-  let nudged = idle ? [] : entry.nudged.slice();
-  const already = nudged.includes(relPath);
+  const isMap = entry.nudged && typeof entry.nudged === 'object' && !Array.isArray(entry.nudged);
+  const nudged = idle || !isMap ? {} : { ...entry.nudged };
+  const already = nudged[relPath] === currentHash;
   if (!already) {
-    nudged.push(relPath);
-    if (nudged.length > MAX_NUDGED_PER_SESSION) nudged = nudged.slice(nudged.length - MAX_NUDGED_PER_SESSION);
+    nudged[relPath] = currentHash;
+    const keys = Object.keys(nudged);
+    if (keys.length > MAX_NUDGED_PER_SESSION) {
+      keys.slice(0, keys.length - MAX_NUDGED_PER_SESSION).forEach((k) => delete nudged[k]);
+    }
   }
   state.sessions[sessionId] = { nudged, at: Date.now() };
   const ids = Object.keys(state.sessions);
@@ -148,7 +171,17 @@ function shouldNudge(statePath, sessionId, relPath) {
   return !already;
 }
 
-// Read matcher: code-doc-on-first-read.
+// Read matcher: code-doc-on-first-read, staleness-aware (source_hash, T-1).
+//
+// Derives a three-way state from a single content-hash comparison:
+//   - no note at the computed target path -> `new`
+//   - note exists, its `source_hash` matches the source's current content
+//     hash -> `current` -- never nudges, regardless of session
+//   - note exists, `source_hash` missing or mismatched -> `stale` -- nudges
+//     with refresh framing (in-place update + new ## Changelog entry, not
+//     a duplicate note)
+// `new` and `stale` both go through the existing session-throttle check;
+// `current` skips it entirely (nothing to throttle -- it never nudges).
 function handleRead(input, projectDir) {
   const args = input.tool_input || {};
   const filePath = args.file_path || args.path || args.notebook_path;
@@ -160,17 +193,47 @@ function handleRead(input, projectDir) {
   } catch {
     return ''; // best-effort: never crash the hook on a naming edge case
   }
-  if (fs.existsSync(path.join(projectDir, targetPath))) return ''; // already documented under this exact source
 
-  const relSource = path.relative(projectDir, path.isAbsolute(filePath) ? filePath : path.join(projectDir, filePath)).split(path.sep).join('/');
+  const absSource = path.isAbsolute(filePath) ? filePath : path.join(projectDir, filePath);
+  let currentHash;
+  try {
+    currentHash = hashContent(fs.readFileSync(absSource));
+  } catch {
+    return ''; // source unreadable/deleted between the Read call and now: silent
+  }
+
+  const absTarget = path.join(projectDir, targetPath);
+  let state = 'new';
+  if (fs.existsSync(absTarget)) {
+    let noteHash;
+    try {
+      noteHash = parseFrontmatter(fs.readFileSync(absTarget, 'utf8')).fields.source_hash;
+    } catch {
+      noteHash = undefined; // malformed/unreadable note: falls into `stale` below
+    }
+    state = noteHash === currentHash ? 'current' : 'stale';
+  }
+  if (state === 'current') return '';
+
+  const relSource = path.relative(projectDir, absSource).split(path.sep).join('/');
   const spearheadDir = path.join(projectDir, 'spearhead-attacks');
   const statePath = path.join(spearheadDir, STATE_FILE);
-  if (!shouldNudge(statePath, sessionKeyFrom(input), relSource)) return '';
+  if (!shouldNudge(statePath, sessionKeyFrom(input), relSource, currentHash)) return '';
+
+  if (state === 'stale') {
+    return (
+      `spearhead-knowledge: "${relSource}" has changed since ${targetPath} was last updated ` +
+      '(source_hash no longer matches). Update that note in place -- do not create a duplicate -- ' +
+      'with a new ## Changelog entry describing the change, and refresh its source_hash frontmatter ' +
+      `to this file's current content hash. ${WIKILINK_LINE}\n`
+    );
+  }
 
   return (
     `spearhead-knowledge: "${relSource}" has no code doc yet. Write one at ${targetPath} ` +
     '(the exact path scripts/knowledge-path.js computes for this source -- naming is deterministic, ' +
-    'do not pick a different path) with type/tags/source frontmatter and a populated ## Changelog section.\n'
+    'do not pick a different path) with type/tags/source/source_hash frontmatter (set source_hash to ' +
+    `this file's current content hash) and a populated ## Changelog section. ${WIKILINK_LINE}\n`
   );
 }
 
@@ -225,7 +288,7 @@ function handleBash(input, projectDir) {
     `spearhead-knowledge: ${taskId} (${attackId}) just transitioned to done. Update the code doc for each ` +
     `touched file below with a new ## Changelog entry referencing ${taskId} and ${attackId}:\n` +
     lines.join('\n') +
-    '\n'
+    `\n${WIKILINK_LINE}\n`
   );
 }
 
