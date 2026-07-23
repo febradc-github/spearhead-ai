@@ -14,12 +14,6 @@
   },
   "skills": "./skills/",
   "commands": "./commands/",
-  "mcpServers": {
-    "spearhead-knowledge": {
-      "command": "node",
-      "args": ["./mcp-server/server.js"]
-    }
-  },
   "hooks": [
     {
       "event": "UserPromptSubmit",
