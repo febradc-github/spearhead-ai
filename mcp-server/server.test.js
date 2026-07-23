@@ -1,12 +1,13 @@
 'use strict';
 // Tests for server.js: T-1 proved the core architectural assumption behind
-// A-1 (dual-runtime MCP server support) with a stub `search` tool; this
-// suite covers T-6's real wiring -- the server starts the T-5 watch
-// pipeline on boot (PROBLEM.md #1, #3), and `search` embeds the query,
-// ranks index entries via T-4's similarity.js, and returns
-// `{path, excerpt, score}` for the top results, surfacing a missing API key
-// or embeddings-call failure as a named tool error rather than an
-// empty/silent result (PROBLEM.md #2, #10).
+// A-1 (dual-runtime MCP server support) with a stub `search` tool; T-6
+// wired up the real thing (boot-time T-5 watch pipeline); this suite covers
+// T-3's rework of `search`'s ranking step -- it builds {path, excerpt}
+// candidates from every indexed path and asks rank.js's rankNotes (T-1) to
+// filter/order them by relevance, returning {path, excerpt} for the top
+// results (no numeric score, per PROBLEM.md/DESIGN.md's resolved decision),
+// surfacing a ranking-CLI-unavailable or ranking-request failure as a named
+// tool error rather than an empty/silent result (PROBLEM.md #10).
 //
 // Two styles of test, matching what each is proving:
 //   - "starts and lists tools" / "starts the watch pipeline on boot" spawn
@@ -14,11 +15,11 @@
 //     client), the same way T-1's tests did -- proving the actual bundled
 //     entry point boots for real.
 //   - `search` ranking/error-surfacing tests connect a client to
-//     `createServer({root, embed})` in-process via the SDK's
+//     `createServer({root, rank})` in-process via the SDK's
 //     InMemoryTransport, with a fixture index pre-populated in a temp dir
-//     and an injected embed stub -- no live network call is ever made by
-//     this suite, and no subprocess is needed to exercise the tool handler
-//     itself.
+//     and an injected `rank` stub -- no real subprocess is ever spawned by
+//     this suite, and no ranking CLI needs to be installed to exercise the
+//     tool handler itself.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -31,9 +32,10 @@ const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
 
 const { createServer } = require('./server.js');
 const { loadIndex, setEntry } = require('./lib/index-store.js');
-const { MissingApiKeyError, EmbeddingsRequestError } = require('./lib/embeddings.js');
+const { RankingCliUnavailableError, RankingCliRequestError } = require('./lib/rank.js');
 
 const SERVER_PATH = path.join(__dirname, 'server.js');
+const SERVER_SOURCE = fs.readFileSync(SERVER_PATH, 'utf8');
 
 function mkRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'spearhead-server-'));
@@ -66,11 +68,10 @@ async function waitFor(check, timeoutMs = 4000, intervalMs = 20) {
 // spawn is pinned to a fresh temp dir as both `cwd` and `CLAUDE_PROJECT_DIR`
 // (belt-and-suspenders against resolveRoot()'s fallback chain) so booting
 // the real watch pipeline (main()) never touches this repo's own
-// spearhead-knowledge/spearhead-attacks trees. Also disables the embeddings
-// API key by default so a boot-time reconcile of a fixture file never makes
-// a live network call. `options.setup(root)` runs before the process is
-// spawned (e.g. to write fixture files the boot-time reconcile should see);
-// `options.env` extends/overrides the subprocess environment.
+// spearhead-knowledge/spearhead-attacks trees. `options.setup(root)` runs
+// before the process is spawned (e.g. to write fixture files the boot-time
+// reconcile should see); `options.env` extends/overrides the subprocess
+// environment.
 async function withStdioClient(fn, options = {}) {
   const root = mkRoot();
   if (options.setup) options.setup(root);
@@ -78,7 +79,7 @@ async function withStdioClient(fn, options = {}) {
     command: 'node',
     args: [SERVER_PATH],
     cwd: root,
-    env: { ...process.env, CLAUDE_PROJECT_DIR: root, SPEARHEAD_EMBEDDINGS_API_KEY: '', ...options.env },
+    env: { ...process.env, CLAUDE_PROJECT_DIR: root, ...options.env },
   });
   const client = new Client({ name: 'spearhead-knowledge-test-client', version: '0.0.0' });
   await client.connect(transport);
@@ -90,7 +91,7 @@ async function withStdioClient(fn, options = {}) {
 }
 
 // Connects a client to `createServer(options)` in-process over a linked
-// InMemoryTransport pair -- no subprocess, no stdio, so `options.embed` (a
+// InMemoryTransport pair -- no subprocess, no stdio, so `options.rank` (a
 // plain injected async function) is reachable from the test. Always closes
 // the connection even if fn throws.
 async function withInMemoryClient(options, fn) {
@@ -129,10 +130,9 @@ test('server starts the T-5 watch pipeline on boot: watched dirs exist and a pre
 
       // Boot also runs a startup reconcile() (T-5) over the pre-existing
       // fixture file below, with no manual index-build step (PROBLEM.md
-      // #1) -- the embeddings key is deliberately unset for this spawn, but
-      // indexing has no embeddings dependency, so reconcile is expected to
-      // reach it and produce a normal successful entry (not leave it absent
-      // from the index) rather than silently skip it.
+      // #1) -- indexing has no network dependency, so reconcile is expected
+      // to reach it and produce a normal successful entry (not leave it
+      // absent from the index) rather than silently skip it.
       const seen = await waitFor(() => {
         const index = loadIndex(root);
         return index['spearhead-knowledge/code/pre-existing.md'];
@@ -147,34 +147,33 @@ test('server starts the T-5 watch pipeline on boot: watched dirs exist and a pre
   );
 });
 
-test('search tool ranks fixture index entries by similarity and returns {path, excerpt, score}', async () => {
+test('search tool ranks fixture index entries via the injected rank stub and returns {path, excerpt}', async () => {
   const root = mkRoot();
   writeFile(root, 'spearhead-knowledge/code/close.md', 'the file that matches the query well');
-  writeFile(root, 'spearhead-knowledge/code/far.md', 'an unrelated note');
+  writeFile(root, 'spearhead-knowledge/code/far.md', 'a somewhat related note');
   setEntry(root, 'spearhead-knowledge/code/close.md', {
     hash: 'h1',
-    embedding: [1, 0, 0],
     updated: '2026-07-22T00:00:00.000Z',
     type: 'code',
   });
   setEntry(root, 'spearhead-knowledge/code/far.md', {
-    // [1, 1, 0] scores ~0.707 against the [1, 0, 0] query -- above
-    // similarity.js's DEFAULT_MIN_SCORE cutoff (0.5) so it still surfaces
-    // as a second, lower-ranked result, while staying clearly below
-    // close.md's exact-match score of 1 so the ranking order this test
-    // asserts still holds.
     hash: 'h2',
-    embedding: [1, 1, 0],
     updated: '2026-07-22T00:00:00.000Z',
     type: 'code',
   });
 
-  const embed = async (text) => {
-    assert.equal(text, 'find the matching file');
-    return [1, 0, 0]; // identical to close.md's embedding -> ranks first
+  const rank = async (query, candidates) => {
+    assert.equal(query, 'find the matching file');
+    assert.equal(candidates.length, 2);
+    assert.deepEqual(
+      candidates.map((c) => c.path).sort(),
+      ['spearhead-knowledge/code/close.md', 'spearhead-knowledge/code/far.md']
+    );
+    // Simulate the ranking CLI's judgment: both relevant, close.md first.
+    return candidates.slice().sort((a, b) => (a.path < b.path ? -1 : 1));
   };
 
-  await withInMemoryClient({ root, embed }, async (client) => {
+  await withInMemoryClient({ root, rank }, async (client) => {
     const result = await client.callTool({ name: 'search', arguments: { query: 'find the matching file' } });
     assert.equal(result.isError, undefined);
     const { results } = JSON.parse(result.content[0].text);
@@ -183,33 +182,24 @@ test('search tool ranks fixture index entries by similarity and returns {path, e
       results.map((r) => r.path),
       ['spearhead-knowledge/code/close.md', 'spearhead-knowledge/code/far.md']
     );
-    assert.equal(results[0].score, 1);
     assert.equal(results[0].excerpt, 'the file that matches the query well');
     assert.ok(Object.prototype.hasOwnProperty.call(results[0], 'path'));
     assert.ok(Object.prototype.hasOwnProperty.call(results[0], 'excerpt'));
-    assert.ok(Object.prototype.hasOwnProperty.call(results[0], 'score'));
+    assert.ok(!Object.prototype.hasOwnProperty.call(results[0], 'score'), 'results must not carry a score field');
   });
 });
 
 test('search tool defaults to the top 8 results and honors a custom limit', async () => {
   const root = mkRoot();
-  // [1, i * 0.1] stays close to parallel with the [1, 0] query across the
-  // whole i=0..11 range (worst case, i=11, still scores ~0.67), keeping
-  // every fixture above similarity.js's DEFAULT_MIN_SCORE cutoff (0.5) so
-  // this test isolates limit-truncation behavior rather than the cutoff.
   for (let i = 0; i < 12; i++) {
     const relPath = `spearhead-knowledge/code/note-${i}.md`;
     writeFile(root, relPath, `note ${i}`);
-    setEntry(root, relPath, {
-      hash: `h${i}`,
-      embedding: [1, i * 0.1],
-      updated: '2026-07-22T00:00:00.000Z',
-      type: 'code',
-    });
+    setEntry(root, relPath, { hash: `h${i}`, updated: '2026-07-22T00:00:00.000Z', type: 'code' });
   }
-  const embed = async () => [1, 0];
+  // Simulate the ranking CLI judging every candidate relevant, in index order.
+  const rank = async (query, candidates) => candidates;
 
-  await withInMemoryClient({ root, embed }, async (client) => {
+  await withInMemoryClient({ root, rank }, async (client) => {
     const defaultResult = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
     assert.equal(JSON.parse(defaultResult.content[0].text).results.length, 8);
 
@@ -218,56 +208,18 @@ test('search tool defaults to the top 8 results and honors a custom limit', asyn
   });
 });
 
-test('search tool excludes below-threshold entries and includes at/above-threshold entries (default minScore)', async () => {
+test('search tool returns results: [] as a successful response when nothing is relevant', async () => {
   const root = mkRoot();
-  writeFile(root, 'spearhead-knowledge/code/below.md', 'unrelated note');
-  writeFile(root, 'spearhead-knowledge/code/above.md', 'closely related note');
-  setEntry(root, 'spearhead-knowledge/code/below.md', {
-    // Orthogonal to the [1, 0] query -> score 0, below the default 0.5 cutoff.
+  writeFile(root, 'spearhead-knowledge/code/unrelated.md', 'unrelated note');
+  setEntry(root, 'spearhead-knowledge/code/unrelated.md', {
     hash: 'h1',
-    embedding: [0, 1],
     updated: '2026-07-22T00:00:00.000Z',
     type: 'code',
   });
-  setEntry(root, 'spearhead-knowledge/code/above.md', {
-    // [0.8, 0.2] scores ~0.970 against [1, 0] -- comfortably above the 0.5 cutoff.
-    hash: 'h2',
-    embedding: [0.8, 0.2],
-    updated: '2026-07-22T00:00:00.000Z',
-    type: 'code',
-  });
-  const embed = async () => [1, 0];
+  // Simulate the ranking CLI judging nothing relevant to the query.
+  const rank = async () => [];
 
-  await withInMemoryClient({ root, embed }, async (client) => {
-    const result = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
-    assert.equal(result.isError, undefined);
-    const { results } = JSON.parse(result.content[0].text);
-    assert.deepEqual(
-      results.map((r) => r.path),
-      ['spearhead-knowledge/code/above.md']
-    );
-  });
-});
-
-test('search tool returns results: [] as a successful response when every entry scores below the threshold', async () => {
-  const root = mkRoot();
-  writeFile(root, 'spearhead-knowledge/code/orthogonal.md', 'unrelated note');
-  writeFile(root, 'spearhead-knowledge/code/opposite.md', 'opposite note');
-  setEntry(root, 'spearhead-knowledge/code/orthogonal.md', {
-    hash: 'h1',
-    embedding: [0, 1], // score 0
-    updated: '2026-07-22T00:00:00.000Z',
-    type: 'code',
-  });
-  setEntry(root, 'spearhead-knowledge/code/opposite.md', {
-    hash: 'h2',
-    embedding: [-1, 0], // score -1
-    updated: '2026-07-22T00:00:00.000Z',
-    type: 'code',
-  });
-  const embed = async () => [1, 0];
-
-  await withInMemoryClient({ root, embed }, async (client) => {
+  await withInMemoryClient({ root, rank }, async (client) => {
     const result = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
     assert.equal(result.isError, undefined);
     const { results } = JSON.parse(result.content[0].text);
@@ -275,114 +227,48 @@ test('search tool returns results: [] as a successful response when every entry 
   });
 });
 
-test('SPEARHEAD_SEARCH_MIN_SCORE overrides which entries are included', async () => {
+test('search tool surfaces a named, non-empty tool error when the ranking CLI is unavailable', async () => {
   const root = mkRoot();
-  writeFile(root, 'spearhead-knowledge/code/high.md', 'closely related note');
-  writeFile(root, 'spearhead-knowledge/code/mid.md', 'somewhat related note');
-  setEntry(root, 'spearhead-knowledge/code/high.md', {
-    hash: 'h1',
-    embedding: [1, 0], // score 1
-    updated: '2026-07-22T00:00:00.000Z',
-    type: 'code',
-  });
-  setEntry(root, 'spearhead-knowledge/code/mid.md', {
-    // [1, 1] scores ~0.707 against [1, 0] -- above the default 0.5 cutoff,
-    // below a stricter 0.95 override.
-    hash: 'h2',
-    embedding: [1, 1],
-    updated: '2026-07-22T00:00:00.000Z',
-    type: 'code',
-  });
-  const embed = async () => [1, 0];
-
-  const previous = process.env.SPEARHEAD_SEARCH_MIN_SCORE;
-  try {
-    await withInMemoryClient({ root, embed }, async (client) => {
-      process.env.SPEARHEAD_SEARCH_MIN_SCORE = '0.95';
-      const strict = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
-      assert.deepEqual(
-        JSON.parse(strict.content[0].text).results.map((r) => r.path),
-        ['spearhead-knowledge/code/high.md']
-      );
-
-      process.env.SPEARHEAD_SEARCH_MIN_SCORE = '0.6';
-      const lenient = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
-      assert.deepEqual(
-        JSON.parse(lenient.content[0].text).results.map((r) => r.path),
-        ['spearhead-knowledge/code/high.md', 'spearhead-knowledge/code/mid.md']
-      );
-    });
-  } finally {
-    if (previous === undefined) delete process.env.SPEARHEAD_SEARCH_MIN_SCORE;
-    else process.env.SPEARHEAD_SEARCH_MIN_SCORE = previous;
-  }
-});
-
-test('unset or unparseable SPEARHEAD_SEARCH_MIN_SCORE falls back to the default threshold', async () => {
-  const root = mkRoot();
-  writeFile(root, 'spearhead-knowledge/code/mid.md', 'somewhat related note');
-  writeFile(root, 'spearhead-knowledge/code/low.md', 'unrelated note');
-  setEntry(root, 'spearhead-knowledge/code/mid.md', {
-    hash: 'h1',
-    embedding: [1, 1], // score ~0.707, above the default 0.5 cutoff
-    updated: '2026-07-22T00:00:00.000Z',
-    type: 'code',
-  });
-  setEntry(root, 'spearhead-knowledge/code/low.md', {
-    hash: 'h2',
-    embedding: [0, 1], // score 0, below the default cutoff
-    updated: '2026-07-22T00:00:00.000Z',
-    type: 'code',
-  });
-  const embed = async () => [1, 0];
-
-  const previous = process.env.SPEARHEAD_SEARCH_MIN_SCORE;
-  try {
-    await withInMemoryClient({ root, embed }, async (client) => {
-      delete process.env.SPEARHEAD_SEARCH_MIN_SCORE;
-      const unset = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
-      assert.deepEqual(
-        JSON.parse(unset.content[0].text).results.map((r) => r.path),
-        ['spearhead-knowledge/code/mid.md']
-      );
-
-      process.env.SPEARHEAD_SEARCH_MIN_SCORE = 'not-a-number';
-      const unparseable = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
-      assert.deepEqual(
-        JSON.parse(unparseable.content[0].text).results.map((r) => r.path),
-        ['spearhead-knowledge/code/mid.md']
-      );
-    });
-  } finally {
-    if (previous === undefined) delete process.env.SPEARHEAD_SEARCH_MIN_SCORE;
-    else process.env.SPEARHEAD_SEARCH_MIN_SCORE = previous;
-  }
-});
-
-test('search tool surfaces a named, non-empty tool error when the embeddings API key is missing', async () => {
-  const root = mkRoot();
-  const embed = async () => {
-    throw new MissingApiKeyError();
+  const rank = async () => {
+    throw new RankingCliUnavailableError();
   };
 
-  await withInMemoryClient({ root, embed }, async (client) => {
+  await withInMemoryClient({ root, rank }, async (client) => {
     const result = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
     assert.equal(result.isError, true);
     assert.ok(result.content[0].text.length > 0, 'error text must not be empty');
-    assert.match(result.content[0].text, /MissingApiKeyError/);
+    assert.match(result.content[0].text, /RankingCliUnavailableError/);
   });
 });
 
-test('search tool surfaces a named, non-empty tool error when the embeddings call fails', async () => {
+test('search tool surfaces a named, non-empty tool error when the ranking CLI request fails', async () => {
   const root = mkRoot();
-  const embed = async () => {
-    throw new EmbeddingsRequestError('embeddings API responded with status 500');
+  const rank = async () => {
+    throw new RankingCliRequestError('claude CLI invocation failed: timed out', { cause: new Error('timeout') });
   };
 
-  await withInMemoryClient({ root, embed }, async (client) => {
+  await withInMemoryClient({ root, rank }, async (client) => {
     const result = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /EmbeddingsRequestError/);
-    assert.match(result.content[0].text, /status 500/);
+    assert.match(result.content[0].text, /RankingCliRequestError/);
+    assert.match(result.content[0].text, /timed out/);
   });
+});
+
+test('search no longer references the removed embeddings/min-score env vars or the embeddings/similarity modules', () => {
+  for (const needle of [
+    'SPEARHEAD_EMBEDDINGS_API_KEY',
+    'SPEARHEAD_EMBEDDINGS_ENDPOINT',
+    'SPEARHEAD_SEARCH_MIN_SCORE',
+    'rankBySimilarity',
+    "require('./lib/embeddings.js')",
+    "require('./lib/similarity.js')",
+  ]) {
+    assert.ok(!SERVER_SOURCE.includes(needle), `server.js must not reference ${needle}`);
+  }
+  assert.ok(!/cosine similarity/i.test(SERVER_SOURCE), 'SEARCH_TOOL.description must not mention cosine similarity');
+  assert.ok(
+    !/minimum relevance score/i.test(SERVER_SOURCE),
+    'SEARCH_TOOL.description must not mention a minimum relevance score threshold'
+  );
 });
