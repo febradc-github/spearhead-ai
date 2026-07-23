@@ -1,11 +1,11 @@
 attack:
-  id: A-3
-  title: "MCP search: minimum-score threshold"
+  id: A-5
+  title: "Replace MCP-server search with guru sub-agent + Obsidian-friendly knowledge base"
   started: 2026-07-23
   state: complete
   gitignore_declined: false
-attack_counter: 4
-counter: 4
+attack_counter: 6
+counter: 8
 base_branch: main
 verify_lock: null
 phases:
@@ -16,33 +16,119 @@ phases:
   ship: complete
   retro: complete
 tasks:
+  - id: T-1
+    title: "agents/guru.md search+staleness+fallback+document sub-agent"
+    status: done
+    mode: background
+    branch: spearhead/T-1
+    worktree: null
+    dispatched_at: 2026-07-23T14:22:51.380Z
+    depends_on: []
+    files:
+      - agents/guru.md
+    parallel_approved: false
+    attempts: 0
+    verify_attempts: 1
   - id: T-2
-    title: "rankBySimilarity minimum-score cutoff"
+    title: "relocate hash.js to lib/"
     status: done
     mode: background
     branch: spearhead/T-2
     worktree: null
-    dispatched_at: 2026-07-23T10:16:33.724Z
+    dispatched_at: 2026-07-23T14:52:23.590Z
     depends_on: []
     files:
-      - mcp-server/lib/similarity.js
-      - mcp-server/lib/similarity.test.js
-      - mcp-server/server.test.js
-    parallel_approved: false
+      - lib/hash.js
+      - lib/hash.test.js
+      - mcp-server/lib/hash.js
+      - mcp-server/lib/hash.test.js
+      - hooks/knowledge-nudge.js
+      - hooks/knowledge-nudge.test.js
+      - mcp-server/lib/pipeline.js
+      - mcp-server/lib/pipeline.test.js
+    parallel_approved: true
     attempts: 0
     verify_attempts: 2
   - id: T-3
-    title: "server.js runSearch env-var wiring + tool description"
+    title: "cssclasses field + type taxonomy + CSS snippet"
     status: done
     mode: background
     branch: spearhead/T-3
     worktree: null
-    dispatched_at: 2026-07-23T10:23:02.877Z
+    dispatched_at: 2026-07-23T14:23:01.273Z
+    depends_on: []
+    files:
+      - lib/knowledge-frontmatter.js
+      - lib/knowledge-frontmatter.test.js
+      - spearhead-knowledge/obsidian-css-snippet.css
+    parallel_approved: true
+    attempts: 0
+    verify_attempts: 1
+  - id: T-4
+    title: "rework remind.js and RULES.md search-first nudge to dispatch guru"
+    status: done
+    mode: background
+    branch: spearhead/T-4
+    worktree: null
+    dispatched_at: 2026-07-23T14:23:07.095Z
+    depends_on: []
+    files:
+      - hooks/remind.js
+      - hooks/remind.test.js
+      - rules/RULES.md
+    parallel_approved: true
+    attempts: 0
+    verify_attempts: 1
+  - id: T-5
+    title: "delete mcp-server and manifest mcpServers wiring"
+    status: done
+    mode: background
+    branch: spearhead/T-5
+    worktree: null
+    dispatched_at: 2026-07-23T15:21:25.107Z
     depends_on:
       - T-2
     files:
-      - mcp-server/server.js
-      - mcp-server/server.test.js
+      - mcp-server/**
+      - .claude-plugin/plugin.json
+      - .kimi-plugin/plugin.json
+      - .gitignore
+    parallel_approved: false
+    attempts: 0
+    verify_attempts: 2
+  - id: T-6
+    title: "/spearhead:obsidian-graph command+skill+script"
+    status: done
+    mode: background
+    branch: spearhead/T-6
+    worktree: null
+    dispatched_at: 2026-07-23T14:23:12.431Z
+    depends_on: []
+    files:
+      - scripts/obsidian-graph.js
+      - scripts/obsidian-graph.test.js
+      - commands/obsidian-graph.md
+      - skills/spearhead-obsidian-graph/SKILL.md
+    parallel_approved: true
+    attempts: 0
+    verify_attempts: 1
+  - id: T-7
+    title: "README + CHANGELOG for guru-agent architecture"
+    status: done
+    mode: background
+    branch: spearhead/T-7
+    worktree: null
+    dispatched_at: 2026-07-23T15:25:37.238Z
+    depends_on:
+      - T-1
+      - T-2
+      - T-3
+      - T-4
+      - T-5
+      - T-6
+    files:
+      - README.md
+      - CHANGELOG.md
     parallel_approved: false
     attempts: 0
     verify_attempts: 1
