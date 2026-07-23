@@ -20,7 +20,7 @@ const HOOK = path.join(__dirname, 'knowledge-nudge.js');
 process.env.SPEARHEAD_HOOK_LIB = '1';
 const { computeKnowledgePath } = require(path.join(__dirname, '..', 'scripts', 'knowledge-path.js'));
 const { serializeFrontmatter } = require(path.join(__dirname, '..', 'lib', 'knowledge-frontmatter.js'));
-const { hashContent } = require(path.join(__dirname, '..', 'mcp-server', 'lib', 'hash.js'));
+const { hashContent } = require(path.join(__dirname, '..', 'lib', 'hash.js'));
 const STATE_JS = path.join(__dirname, '..', 'scripts', 'state.js');
 
 function runHook(payload, env = {}) {
