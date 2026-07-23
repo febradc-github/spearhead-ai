@@ -37,6 +37,18 @@
       "matcher": "Write|Edit",
       "command": "node ./hooks/validate-state.js",
       "timeout": 10
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Read",
+      "command": "node ./hooks/knowledge-nudge.js",
+      "timeout": 10
+    },
+    {
+      "event": "PostToolUse",
+      "matcher": "Bash|PowerShell",
+      "command": "node ./hooks/knowledge-nudge.js",
+      "timeout": 10
     }
   ]
 }
