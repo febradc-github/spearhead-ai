@@ -1,0 +1,44 @@
+/*
+ * Opt-in Obsidian CSS snippet for spearhead-knowledge notes.
+ *
+ * This file is NOT wired into your vault automatically -- this repo does
+ * not commit or reference any .obsidian/ configuration. To use it:
+ *   1. Copy this file into your vault's `.obsidian/snippets/` folder.
+ *   2. In Obsidian: Settings -> Appearance -> CSS snippets -> enable
+ *      "obsidian-css-snippet".
+ *
+ * It color-codes notes by the `cssclasses` frontmatter field (see
+ * lib/knowledge-frontmatter.js), one class per note `type`:
+ *   - kb-code         -- code docs (one per source file)
+ *   - kb-decisions    -- ADR-style decision records
+ *   - kb-design       -- opportunistic-capture design notes
+ *   - kb-architecture -- system/component-level structure notes
+ *
+ * A note opts in by adding the matching value to its frontmatter, e.g.:
+ *   cssclasses:
+ *     - kb-code
+ */
+
+.kb-code .markdown-preview-view,
+.kb-code.markdown-source-view {
+  border-left: 4px solid #4c8bf5;
+  background-color: rgba(76, 139, 245, 0.04);
+}
+
+.kb-decisions .markdown-preview-view,
+.kb-decisions.markdown-source-view {
+  border-left: 4px solid #f5a623;
+  background-color: rgba(245, 166, 35, 0.04);
+}
+
+.kb-design .markdown-preview-view,
+.kb-design.markdown-source-view {
+  border-left: 4px solid #7ed321;
+  background-color: rgba(126, 211, 33, 0.04);
+}
+
+.kb-architecture .markdown-preview-view,
+.kb-architecture.markdown-source-view {
+  border-left: 4px solid #bd10e0;
+  background-color: rgba(189, 16, 224, 0.04);
+}
