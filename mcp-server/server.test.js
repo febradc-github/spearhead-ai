@@ -214,6 +214,147 @@ test('search tool defaults to the top 8 results and honors a custom limit', asyn
   });
 });
 
+test('search tool excludes below-threshold entries and includes at/above-threshold entries (default minScore)', async () => {
+  const root = mkRoot();
+  writeFile(root, 'spearhead-knowledge/code/below.md', 'unrelated note');
+  writeFile(root, 'spearhead-knowledge/code/above.md', 'closely related note');
+  setEntry(root, 'spearhead-knowledge/code/below.md', {
+    // Orthogonal to the [1, 0] query -> score 0, below the default 0.5 cutoff.
+    hash: 'h1',
+    embedding: [0, 1],
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  setEntry(root, 'spearhead-knowledge/code/above.md', {
+    // [0.8, 0.2] scores ~0.970 against [1, 0] -- comfortably above the 0.5 cutoff.
+    hash: 'h2',
+    embedding: [0.8, 0.2],
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  const embed = async () => [1, 0];
+
+  await withInMemoryClient({ root, embed }, async (client) => {
+    const result = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
+    assert.equal(result.isError, undefined);
+    const { results } = JSON.parse(result.content[0].text);
+    assert.deepEqual(
+      results.map((r) => r.path),
+      ['spearhead-knowledge/code/above.md']
+    );
+  });
+});
+
+test('search tool returns results: [] as a successful response when every entry scores below the threshold', async () => {
+  const root = mkRoot();
+  writeFile(root, 'spearhead-knowledge/code/orthogonal.md', 'unrelated note');
+  writeFile(root, 'spearhead-knowledge/code/opposite.md', 'opposite note');
+  setEntry(root, 'spearhead-knowledge/code/orthogonal.md', {
+    hash: 'h1',
+    embedding: [0, 1], // score 0
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  setEntry(root, 'spearhead-knowledge/code/opposite.md', {
+    hash: 'h2',
+    embedding: [-1, 0], // score -1
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  const embed = async () => [1, 0];
+
+  await withInMemoryClient({ root, embed }, async (client) => {
+    const result = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
+    assert.equal(result.isError, undefined);
+    const { results } = JSON.parse(result.content[0].text);
+    assert.deepEqual(results, []);
+  });
+});
+
+test('SPEARHEAD_SEARCH_MIN_SCORE overrides which entries are included', async () => {
+  const root = mkRoot();
+  writeFile(root, 'spearhead-knowledge/code/high.md', 'closely related note');
+  writeFile(root, 'spearhead-knowledge/code/mid.md', 'somewhat related note');
+  setEntry(root, 'spearhead-knowledge/code/high.md', {
+    hash: 'h1',
+    embedding: [1, 0], // score 1
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  setEntry(root, 'spearhead-knowledge/code/mid.md', {
+    // [1, 1] scores ~0.707 against [1, 0] -- above the default 0.5 cutoff,
+    // below a stricter 0.95 override.
+    hash: 'h2',
+    embedding: [1, 1],
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  const embed = async () => [1, 0];
+
+  const previous = process.env.SPEARHEAD_SEARCH_MIN_SCORE;
+  try {
+    await withInMemoryClient({ root, embed }, async (client) => {
+      process.env.SPEARHEAD_SEARCH_MIN_SCORE = '0.95';
+      const strict = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
+      assert.deepEqual(
+        JSON.parse(strict.content[0].text).results.map((r) => r.path),
+        ['spearhead-knowledge/code/high.md']
+      );
+
+      process.env.SPEARHEAD_SEARCH_MIN_SCORE = '0.6';
+      const lenient = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
+      assert.deepEqual(
+        JSON.parse(lenient.content[0].text).results.map((r) => r.path),
+        ['spearhead-knowledge/code/high.md', 'spearhead-knowledge/code/mid.md']
+      );
+    });
+  } finally {
+    if (previous === undefined) delete process.env.SPEARHEAD_SEARCH_MIN_SCORE;
+    else process.env.SPEARHEAD_SEARCH_MIN_SCORE = previous;
+  }
+});
+
+test('unset or unparseable SPEARHEAD_SEARCH_MIN_SCORE falls back to the default threshold', async () => {
+  const root = mkRoot();
+  writeFile(root, 'spearhead-knowledge/code/mid.md', 'somewhat related note');
+  writeFile(root, 'spearhead-knowledge/code/low.md', 'unrelated note');
+  setEntry(root, 'spearhead-knowledge/code/mid.md', {
+    hash: 'h1',
+    embedding: [1, 1], // score ~0.707, above the default 0.5 cutoff
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  setEntry(root, 'spearhead-knowledge/code/low.md', {
+    hash: 'h2',
+    embedding: [0, 1], // score 0, below the default cutoff
+    updated: '2026-07-22T00:00:00.000Z',
+    type: 'code',
+  });
+  const embed = async () => [1, 0];
+
+  const previous = process.env.SPEARHEAD_SEARCH_MIN_SCORE;
+  try {
+    await withInMemoryClient({ root, embed }, async (client) => {
+      delete process.env.SPEARHEAD_SEARCH_MIN_SCORE;
+      const unset = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
+      assert.deepEqual(
+        JSON.parse(unset.content[0].text).results.map((r) => r.path),
+        ['spearhead-knowledge/code/mid.md']
+      );
+
+      process.env.SPEARHEAD_SEARCH_MIN_SCORE = 'not-a-number';
+      const unparseable = await client.callTool({ name: 'search', arguments: { query: 'anything' } });
+      assert.deepEqual(
+        JSON.parse(unparseable.content[0].text).results.map((r) => r.path),
+        ['spearhead-knowledge/code/mid.md']
+      );
+    });
+  } finally {
+    if (previous === undefined) delete process.env.SPEARHEAD_SEARCH_MIN_SCORE;
+    else process.env.SPEARHEAD_SEARCH_MIN_SCORE = previous;
+  }
+});
+
 test('search tool surfaces a named, non-empty tool error when the embeddings API key is missing', async () => {
   const root = mkRoot();
   const embed = async () => {

@@ -26,7 +26,7 @@ const { ListToolsRequestSchema, CallToolRequestSchema } = require('@modelcontext
 const { createPipeline, reconcile } = require('./lib/pipeline.js');
 const { watchKnowledgeSources } = require('./lib/watch.js');
 const { loadIndex } = require('./lib/index-store.js');
-const { rankBySimilarity } = require('./lib/similarity.js');
+const { rankBySimilarity, DEFAULT_MIN_SCORE } = require('./lib/similarity.js');
 const { embed: defaultEmbed } = require('./lib/embeddings.js');
 const { parseFrontmatter } = require('../lib/knowledge-frontmatter.js');
 
@@ -36,7 +36,7 @@ const EXCERPT_LENGTH = 200;
 const SEARCH_TOOL = {
   name: 'search',
   description:
-    'Semantic search over the spearhead-knowledge base. Embeds the query, ranks indexed notes/docs by cosine similarity, and returns the top matches as {path, excerpt, score}.',
+    'Semantic search over the spearhead-knowledge base. Embeds the query, ranks indexed notes/docs by cosine similarity, and returns the top matches as {path, excerpt, score}. Results are filtered by a minimum relevance score (SPEARHEAD_SEARCH_MIN_SCORE, default 0.5); an empty result set means no indexed note was similar enough to the query, not a tool malfunction.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -73,18 +73,26 @@ function buildExcerpt(root, relPath) {
 
 // Core of the `search` tool: embeds `query`, ranks the on-disk index, and
 // returns `{path, excerpt, score}` entries for the top `limit` (default 8)
-// matches. `options.embed` overrides the embeddings client (tests inject a
-// stub here; no live network call is made by this module's own test
-// suite). Rejects with whatever error embed() throws (MissingApiKeyError,
-// EmbeddingsRequestError) -- the caller (the tool handler) is responsible
-// for turning that into a named tool error rather than swallowing it.
+// matches scoring at or above the minimum relevance threshold. `options.embed`
+// overrides the embeddings client (tests inject a stub here; no live network
+// call is made by this module's own test suite). Rejects with whatever error
+// embed() throws (MissingApiKeyError, EmbeddingsRequestError) -- the caller
+// (the tool handler) is responsible for turning that into a named tool error
+// rather than swallowing it.
 async function runSearch(root, { query, limit } = {}, options = {}) {
   const embed = options.embed || defaultEmbed;
   const effectiveLimit = typeof limit === 'number' ? limit : DEFAULT_LIMIT;
+  // Same env-var-override-with-fallback pattern as embeddings.js's endpoint
+  // resolution, adapted for a float: parseFloat(undefined) and
+  // parseFloat(<unparseable string>) both yield NaN, so unset and
+  // unparseable values fall back to DEFAULT_MIN_SCORE alike rather than
+  // throwing or disabling the cutoff.
+  const parsedMinScore = parseFloat(process.env.SPEARHEAD_SEARCH_MIN_SCORE);
+  const minScore = Number.isNaN(parsedMinScore) ? DEFAULT_MIN_SCORE : parsedMinScore;
 
   const queryEmbedding = await embed(query);
   const index = loadIndex(root);
-  const ranked = rankBySimilarity(index, queryEmbedding, effectiveLimit);
+  const ranked = rankBySimilarity(index, queryEmbedding, effectiveLimit, minScore);
   return ranked.map(({ path: relPath, score }) => ({
     path: relPath,
     excerpt: buildExcerpt(root, relPath),
