@@ -40,6 +40,12 @@ one gate at a time.
   dependency-free Node scripts. No npm installs, no network calls.
 - git — execute's worktree/branch model requires the project to be a git
   repository with a clean base branch.
+- `SPEARHEAD_EMBEDDINGS_API_KEY` — required for the bundled
+  `spearhead-knowledge` MCP server's `search` tool (see "Second-brain
+  knowledge base" below). This is the one exception to the dependency-free,
+  offline rule above: `mcp-server/` has its own `package.json`/`node_modules`
+  and makes network calls to an embeddings API. Nothing else in the plugin
+  does either.
 
 ## Install
 
@@ -159,6 +165,72 @@ spearhead-attacks/worktrees/
 ```
 
 Commit the rest of `spearhead-attacks/` — it is the project's decision record.
+
+## Second-brain knowledge base
+
+Spearhead maintains a searchable "second brain" over its own decision record
+and the project's documentation, so an agent can answer from a semantic
+index instead of re-reading source files cold. Three sources feed it:
+
+- `spearhead-knowledge/**/*.md` — the notes described below (code docs,
+  decisions, architecture).
+- `spearhead-attacks/**/*.md` — the attack's own decision record (PROBLEM.md,
+  DESIGN.md, ADRs, task files, …).
+- General project docs: the top-level `README.md` and `docs/**/*.md`.
+
+Layout, created lazily alongside `spearhead-attacks/`:
+
+```
+spearhead-knowledge/
+  code/          # one note per documented source file: <parent>-<basename>.md
+  decisions/     # ATK-scoped decision/architecture notes
+  architecture/  # cross-attack architecture notes
+  index/         # embeddings.json -- the search index, one flat file, atomic writes
+```
+
+Every note opens with frontmatter (`type`, `tags`, `related` as
+`[[spearhead-knowledge/<type>/<slug>.md]]` wikilinks, `source`, `updated`).
+`spearhead-knowledge/code/` note paths are never left to per-session
+judgment: `scripts/knowledge-path.js <source-path>` computes the canonical,
+collision-safe path (`<parent>-<basename>.md`, escalating one more parent
+level only on a genuine `source:` collision — an existing note is never
+renamed).
+
+**Search.** The bundled `spearhead-knowledge` MCP server (`mcp-server/`,
+declared in both `.claude-plugin/plugin.json` and `.kimi-plugin/plugin.json`)
+is the sole owner of the index: it file-watches the three sources above,
+content-hashes each changed file (`sha256`, skipping the embeddings call
+when nothing actually changed), and keeps
+`spearhead-knowledge/index/embeddings.json` up to date. It exposes one MCP
+tool:
+
+- `search(query, limit?)` — embeds the query, ranks every indexed note/doc
+  by cosine similarity, and returns the top `limit` (default 8) as
+  `{path, excerpt, score}`. A missing `SPEARHEAD_EMBEDDINGS_API_KEY` or a
+  failed embeddings call comes back as a named tool error
+  (`MissingApiKeyError`, `EmbeddingsRequestError`), never a silent empty
+  result.
+
+**Opportunistic capture.** Documentation is a byproduct of normal work, not
+a separate step, via two nudge-only hook touch-points (they never write
+notes, never write `status.yml`, and never call the embeddings API
+themselves — the agent does the actual writing):
+
+- **Search-first** — every `remind.js` injection (full rules and the
+  one-line anchor) tells the agent to try the `spearhead-knowledge` search
+  tool before reading source files cold.
+- **Code-doc-on-first-read** (`hooks/knowledge-nudge.js`, `PostToolUse` on
+  `Read`) — the first time a session reads a source file with no matching
+  `spearhead-knowledge/code/` note (checked by `source:` frontmatter,
+  re-derived from disk every call), the hook nudges the agent to write one
+  at the exact path `scripts/knowledge-path.js` computes. Session-scoped,
+  idle-expiring "already nudged" tracking (same pattern as `remind.js`)
+  keeps re-reads within a session from re-nudging.
+- **Task-done doc update** (same `hooks/knowledge-nudge.js`, `PostToolUse`
+  on `Bash|PowerShell`) — on a successful `state.js transition <T-id> done`,
+  the hook reads that task's expected-file set from `status.yml` (read-only)
+  and nudges the agent to add a `## Changelog` entry to each touched file's
+  code doc, referencing the task and attack.
 
 ## The task isolation and commit model
 
