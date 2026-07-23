@@ -2,9 +2,9 @@ attack:
   id: A-1
   title: "Second brain: plugin decision/design documentation system"
   started: 2026-07-22
-  state: active
+  state: complete
   gitignore_declined: false
-attack_counter: 1
+attack_counter: 2
 counter: 11
 base_branch: main
 verify_lock: null
@@ -14,7 +14,7 @@ phases:
   design: approved
   plan: approved
   ship: complete
-  retro: pending
+  retro: complete
 tasks:
   - id: T-1
     title: "MCP server skeleton + dual-runtime manifest declaration"
