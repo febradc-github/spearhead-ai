@@ -189,12 +189,13 @@ spearhead-knowledge/
 ```
 
 Every note opens with frontmatter (`type`, `tags`, `related` as
-`[[spearhead-knowledge/<type>/<slug>.md]]` wikilinks, `source`, `updated`).
-`spearhead-knowledge/code/` note paths are never left to per-session
-judgment: `scripts/knowledge-path.js <source-path>` computes the canonical,
-collision-safe path (`<parent>-<basename>.md`, escalating one more parent
-level only on a genuine `source:` collision — an existing note is never
-renamed).
+`[[spearhead-knowledge/<type>/<slug>.md]]` wikilinks — only to genuinely
+related notes, never indiscriminate cross-links — `source`, `updated`,
+`source_hash`). `spearhead-knowledge/code/` note paths are never left to
+per-session judgment: `scripts/knowledge-path.js <source-path>` computes the
+canonical, collision-safe path (`<parent>-<basename>.md`, escalating one
+more parent level only on a genuine `source:` collision — an existing note
+is never renamed).
 
 **Search.** The bundled `spearhead-knowledge` MCP server (`mcp-server/`,
 declared in both `.claude-plugin/plugin.json` and `.kimi-plugin/plugin.json`)
@@ -219,18 +220,26 @@ themselves — the agent does the actual writing):
 - **Search-first** — every `remind.js` injection (full rules and the
   one-line anchor) tells the agent to try the `spearhead-knowledge` search
   tool before reading source files cold.
-- **Code-doc-on-first-read** (`hooks/knowledge-nudge.js`, `PostToolUse` on
-  `Read`) — the first time a session reads a source file with no matching
-  `spearhead-knowledge/code/` note (checked by `source:` frontmatter,
-  re-derived from disk every call), the hook nudges the agent to write one
-  at the exact path `scripts/knowledge-path.js` computes. Session-scoped,
-  idle-expiring "already nudged" tracking (same pattern as `remind.js`)
-  keeps re-reads within a session from re-nudging.
+- **Code-doc-on-first-read, staleness-aware** (`hooks/knowledge-nudge.js`,
+  `PostToolUse` on `Read`) — on every read of a source file, the hook
+  content-hashes it (`sha256`, re-derived from disk every call) and derives
+  a three-way state against the matching `spearhead-knowledge/code/` note's
+  `source_hash` frontmatter: no note yet → nudges the agent to write one at
+  the exact path `scripts/knowledge-path.js` computes; note's `source_hash`
+  matches → silent, note is current; note's `source_hash` is missing or
+  stale → nudges a refresh (update in place, new `## Changelog` entry, never
+  a duplicate note). Session-scoped, idle-expiring "already nudged this
+  (path, hash) pair" tracking (same pattern as `remind.js`) keeps repeat
+  reads at an unchanged hash from re-nudging, while a file that changes
+  again after being nudged once naturally re-nudges.
 - **Task-done doc update** (same `hooks/knowledge-nudge.js`, `PostToolUse`
   on `Bash|PowerShell`) — on a successful `state.js transition <T-id> done`,
   the hook reads that task's expected-file set from `status.yml` (read-only)
   and nudges the agent to add a `## Changelog` entry to each touched file's
   code doc, referencing the task and attack.
+
+All three nudge messages above also remind the agent to use `[[wikilinks]]`
+only for genuinely related notes, never indiscriminately.
 
 ## The task isolation and commit model
 
@@ -447,26 +456,6 @@ output.
   $ state.js set-phase retro complete                 OK
   $ state.js set-attack-complete                      OK: attack A-1 complete; next attack is A-2
 ```
-
-## Build assumptions
-
-Recorded per the clarification gate rule and rule 13 (verify external claims).
-
-- **Turnstile fetched and inspected** (`github.com/febradc-github/turnstile`, 2026-07-20). Confirmations:
-  - Hook event names are identical on both runtimes (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`): confirmed — turnstile's `.kimi-plugin/plugin.json` and `hooks/hooks.json` use the same names.
-  - kimi manifest schema (`.kimi-plugin/plugin.json` with `interface.displayName`, `interface.shortDescription`, `skills`/`commands` string paths, flat `hooks` array with `event`/`matcher`/`command`/`timeout`): confirmed against turnstile's actual file. Note turnstile's README still says "`kimi.plugin.json`"; the file on disk is `.kimi-plugin/plugin.json`. The build document's v2 text (which matches the file on disk) wins.
-  - `__plugin_run_node` loads scripts with `require()`, bypassing `require.main === module`: confirmed by turnstile's `scripts/brain-mcp-server.js` wrapper and its header comment.
-  - PowerShell shell tool on kimi-code/Windows: confirmed — turnstile's guard matcher includes `PowerShell` and its guard applies shell checks to both.
-  - `remind.js` cadence: confirmed — turnstile refreshes the full message on prompt 1 and every 30th (`index % 30 === 0`), one-line anchor otherwise, session counts in `.remind-state.json`, max 20 tracked sessions. Spearhead uses the same 30-prompt cadence (briefly 10 in 0.2.1–0.2.2, reverted in 0.2.3), with the counter managed by state even when the payload has no session id.
-  - Claude Code hook discovery: turnstile registers hooks via `hooks/hooks.json` using `${CLAUDE_PLUGIN_ROOT}`; spearhead copies that convention.
-  - kimi-code Write/Edit tools passing `tool_input.path`: turnstile's guard already reads `args.path` defensively, consistent with rule 12(a); implemented defensively here regardless.
-- **`user-invocable: false`**: turnstile sets it on every skill and its README states skills stay out of the `/` menu; the field name is taken as correct for both runtimes. UNVERIFIED against a live `/` menu in this build environment (see the definition-of-done report); implemented as specified.
-- **Command count**: the spec's definition of done says "all eleven commands", but its section 4 defines thirteen (eight pipeline + five utility). A wrong guess here would not invalidate the architecture, so per the clarification gate rule all thirteen were built and the discrepancy is recorded rather than asked about.
-- **Marketplace file**: `.claude-plugin/marketplace.json` is not in the spec's layout, but turnstile ships one and the marketplace install path requires it; added per "where silent, copy turnstile".
-- **Hook library-mode guard**: hooks must run their handler both when executed directly and when loaded via `require()` (kimi's shim), yet `scripts/state.js` and the tests must be able to `require()` the shared invariant module without side effects. Resolution: every hook runs its handler on load unless `SPEARHEAD_HOOK_LIB=1` is set; `state.js` and the unit tests set that variable before requiring. Both load paths are tested. A `require.main` guard would have broken the kimi path; a thin wrapper file would have left `require()` of the library half impossible.
-- **Runtime capability probing** (rule 14): there is no query API for "does this runtime support background dispatch"; detection is behavioral — a skill attempts the preferred mechanism (plugin agent, background dispatch) and falls back per the tables above when it is absent or errors, recording `mode` accordingly.
-- **Abort reason field**: the spec says abort records a reason but the status schema has no field for it; an optional `attack.reason` is serialized when present (the archived status.yml carries it).
-- **Stale-task recovery route**: unblock on a stale `in_progress` task first transitions it to `blocked` (matrix row "in_progress → blocked: … or user via unblock on a stale task") and then applies the chosen recovery, so no extra matrix rows were invented.
 
 ## License
 
