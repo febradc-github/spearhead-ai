@@ -2,6 +2,29 @@
 
 ## Unreleased — 2026-07-23
 
+- **MCP server replaced by the `guru` sub-agent.** `mcp-server/` is deleted
+  entirely — the second-brain knowledge base is no longer a server, an
+  index, or a third-party dependency of any kind. `agents/guru.md` is a
+  normal sub-agent that searches `spearhead-knowledge/**/*.md` directly with
+  `Glob`/`Grep`/`Read`, cross-checks each candidate note's `source_hash`
+  frontmatter against a freshly-computed hash of its `source:` file to
+  detect staleness, falls back to reading the actual source tree when
+  nothing relevant or fresh is found, and documents a successful fallback as
+  a `code/` note. `hash.js` moves from `mcp-server/lib/` to `lib/`, shared
+  by `guru`, `hooks/knowledge-nudge.js`, and `scripts/`. `remind.js` /
+  `rules/RULES.md` now nudge dispatching `guru` first, falling back to
+  source only if it finds nothing — replacing the old "try the
+  spearhead-knowledge search tool" wording. Note taxonomy expands from
+  three types to four: `code`/`decisions`/`design`/`architecture` (`design`
+  is new — opportunistic-capture notes not tied 1:1 to one source file).
+- **Obsidian compatibility.** `spearhead-knowledge/` notes are usable
+  directly as an Obsidian vault: a new `cssclasses` frontmatter field
+  (`lib/knowledge-frontmatter.js`) pairs with an opt-in
+  `spearhead-knowledge/obsidian-css-snippet.css` that color-codes notes by
+  `type` once copied into a vault's `.obsidian/snippets/`. A new
+  `/spearhead:obsidian-graph` command (`scripts/obsidian-graph.js`) opens
+  Obsidian directly to the vault's graph view via the Advanced URI community
+  plugin, when installed.
 - **CLI-based ranking replaces embeddings.** The second-brain
   `search` tool no longer depends on a third-party embeddings API
   (Voyage AI): `mcp-server/lib/rank.js` now ranks candidate notes by
