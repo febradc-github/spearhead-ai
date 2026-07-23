@@ -24,7 +24,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { hashContent } = require('./hash.js');
+const { hashContent } = require('../../lib/hash.js');
 const { loadIndex, setEntry } = require('./index-store.js');
 const { listWatchedFiles } = require('./watch.js');
 const { parseFrontmatter } = require('../../lib/knowledge-frontmatter.js');
