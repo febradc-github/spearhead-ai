@@ -207,10 +207,15 @@ tool:
 
 - `search(query, limit?)` — embeds the query, ranks every indexed note/doc
   by cosine similarity, and returns the top `limit` (default 8) as
-  `{path, excerpt, score}`. A missing `SPEARHEAD_EMBEDDINGS_API_KEY` or a
-  failed embeddings call comes back as a named tool error
-  (`MissingApiKeyError`, `EmbeddingsRequestError`), never a silent empty
-  result.
+  `{path, excerpt, score}`. Results are filtered by a minimum relevance
+  score (`SPEARHEAD_SEARCH_MIN_SCORE`, default `0.5`) before the `limit`
+  truncation, so an empty or short result list is a real, detectable
+  signal — "nothing sufficiently relevant found" — not an artifact of a
+  small index. A missing `SPEARHEAD_EMBEDDINGS_API_KEY` or a failed
+  embeddings call comes back as a named tool error (`MissingApiKeyError`,
+  `EmbeddingsRequestError`), never a silent empty result — the threshold
+  filter and the error contract are distinct: an empty-due-to-threshold
+  result is a successful, non-error response.
 
 **Opportunistic capture.** Documentation is a byproduct of normal work, not
 a separate step, via two nudge-only hook touch-points (they never write
